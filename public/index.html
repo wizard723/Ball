@@ -6,147 +6,171 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0a0a0f">
-<title>Ball Brawl</title>
+<title>Ball Brawl v3</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
 html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#fff;font-family:-apple-system,Roboto,sans-serif;position:fixed;overscroll-behavior:none}
 canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .hidden{display:none!important}
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:20px;background:radial-gradient(circle at 50% 20%,#1a1a2e 0%,#0a0a0f 70%);z-index:10;overflow-y:auto}
-.title{font-size:36px;font-weight:900;letter-spacing:2px;margin-bottom:16px;text-align:center;line-height:1}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;padding:16px;background:radial-gradient(circle at 50% 20%,#1a1a2e 0%,#0a0a0f 70%);z-index:10;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.title{font-size:32px;font-weight:900;letter-spacing:2px;margin:10px 0;text-align:center;line-height:1}
 .title span{color:#ff3366;text-shadow:0 0 20px rgba(255,51,102,.6)}
-.lbl{width:100%;max-width:340px;font-size:12px;color:#888;margin:10px 0 6px;text-transform:uppercase;letter-spacing:1px}
-.inp{width:100%;max-width:340px;padding:12px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:16px;outline:none;-webkit-user-select:text;user-select:text}
-.inp:focus{border-color:#ff3366}
+.lbl{width:100%;max-width:340px;font-size:11px;color:#888;margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px}
+.inp,select{width:100%;max-width:340px;padding:11px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:15px;outline:none;-webkit-user-select:text;user-select:text;font-family:inherit}
+.inp:focus,select:focus{border-color:#ff3366}
 .inp.code{text-transform:uppercase;letter-spacing:4px;text-align:center;font-weight:bold}
-.row{display:flex;gap:8px;max-width:340px;width:100%;align-items:center}
-.colors{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:340px;margin-top:4px}
-.swatch{width:38px;height:38px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
+.colors{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:340px;margin-top:2px}
+.swatch{width:34px;height:34px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
 .swatch.active{border-color:#fff;transform:scale(1.15)}
-.btn{width:100%;max-width:340px;padding:14px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;transition:transform .1s;margin-top:12px}
+.skins{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:340px;margin-top:2px}
+.skin{width:50px;height:36px;border-radius:10px;border:2px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:12px;cursor:pointer}
+.skin.active{border-color:#ff3366;background:rgba(255,51,102,.2)}
+.btn{width:100%;max-width:340px;padding:13px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;transition:transform .1s;margin-top:10px}
 .btn:active{transform:scale(.97)}
-.btn.primary{background:linear-gradient(135deg,#ff3366,#ff6633);color:#fff;box-shadow:0 4px 20px rgba(255,51,102,.4)}
-.btn.green{background:linear-gradient(135deg,#34c759,#28a745);color:#fff;box-shadow:0 4px 20px rgba(52,199,89,.4)}
+.btn.primary{background:linear-gradient(135deg,#ff3366,#ff6633);color:#fff}
+.btn.green{background:linear-gradient(135deg,#34c759,#28a745);color:#fff}
 .btn.gray{background:rgba(255,255,255,.12);color:#fff}
 .btn.danger{background:rgba(255,60,60,.25);color:#ff6666}
-.err{color:#ff5566;margin-top:10px;font-size:14px;min-height:18px;text-align:center}
-.roomcode{font-size:36px;font-weight:900;letter-spacing:8px;color:#ff3366;margin:8px 0}
-.hint{color:#888;font-size:13px;text-align:center;margin:4px 0}
-.players-box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:8px;margin:14px 0}
-.pl-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,255,255,.06);border-radius:10px;font-size:14px}
-.pl-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
-.pl-team{font-size:11px;padding:2px 8px;border-radius:6px;margin-left:auto}
-
-/* HUD */
+.err{color:#ff5566;margin-top:8px;font-size:13px;min-height:16px;text-align:center}
+.roomcode{font-size:32px;font-weight:900;letter-spacing:8px;color:#ff3366;margin:6px 0}
+.hint{color:#888;font-size:12px;text-align:center;margin:3px 0}
+.players-box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.pl-item{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.06);border-radius:10px;font-size:13px}
+.pl-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.pl-team{font-size:10px;padding:2px 6px;border-radius:6px;margin-left:auto}
+.setting-row{width:100%;max-width:340px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0}
+.setting-row label{font-size:13px;color:#ccc}
+.setting-row select{max-width:160px;padding:8px;font-size:13px}
 #hud{position:absolute;inset:0;pointer-events:none;z-index:5}
 .hud-top{position:absolute;top:0;left:0;right:0;padding:10px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-.scorebox{background:rgba(0,0,0,.65);padding:8px 14px;border-radius:12px;font-weight:700;font-size:18px;display:flex;gap:8px;align-items:center}
-.scorebox .red{color:#ff3366}
-.scorebox .blue{color:#33aaff}
-.pingbox{background:rgba(0,0,0,.6);padding:6px 10px;border-radius:10px;font-size:11px;opacity:.8}
-.exit{pointer-events:auto;width:40px;height:40px;border-radius:50%;background:rgba(255,60,60,.3);border:1px solid rgba(255,60,60,.6);color:#ff6666;font-size:18px;font-weight:700;flex-shrink:0}
-
-#goalMsg{position:absolute;top:35%;left:50%;transform:translate(-50%,-50%);font-size:56px;font-weight:900;color:#ffcc00;text-shadow:0 0 40px rgba(255,204,0,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center;z-index:7}
+.scorebox{background:rgba(0,0,0,.65);padding:6px 12px;border-radius:12px;font-weight:700;font-size:18px;display:flex;gap:6px;align-items:center}
+.scorebox .red{color:#ff3366}.scorebox .blue{color:#33aaff}
+.timebox{background:rgba(0,0,0,.65);padding:6px 12px;border-radius:12px;font-size:13px;font-weight:700}
+.exit{pointer-events:auto;width:36px;height:36px;border-radius:50%;background:rgba(255,60,60,.3);border:1px solid rgba(255,60,60,.6);color:#ff6666;font-size:16px;font-weight:700;flex-shrink:0}
+#goalMsg{position:absolute;top:30%;left:50%;transform:translate(-50%,-50%);font-size:52px;font-weight:900;color:#ffcc00;text-shadow:0 0 40px rgba(255,204,0,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center;z-index:7}
 #goalMsg.show{opacity:1}
-
-#countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:120px;font-weight:900;color:#ff3366;text-shadow:0 0 60px rgba(255,51,102,.9);z-index:8;pointer-events:none}
+#countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:110px;font-weight:900;color:#ff3366;text-shadow:0 0 60px rgba(255,51,102,.9);z-index:8;pointer-events:none}
 #countdown.show{display:flex}
-
-/* JOYSTICK (left) */
-#joyZone{position:absolute;left:0;bottom:0;width:50%;height:60%;z-index:6;touch-action:none}
-.joy-base{position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);pointer-events:none;display:none;transform:translate(-50%,-50%)}
-.joy-stick{position:absolute;width:65px;height:65px;border-radius:50%;background:rgba(255,51,102,.75);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,51,102,.6)}
-
-/* ACTION BUTTONS (right) */
-#actionZone{position:absolute;right:0;bottom:0;width:50%;height:60%;z-index:6;touch-action:none;pointer-events:none}
-.act-btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid rgba(255,255,255,.4);color:#fff;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none;transition:transform .08s, background .08s}
-.act-btn:active,.act-btn.on{transform:scale(.9)}
-.act-btn .lbl2{font-size:11px;opacity:.85;font-weight:600;margin-top:2px}
-#btnKick{width:80px;height:80px;right:24px;bottom:24px;background:rgba(255,51,102,.55);font-size:24px}
-#btnPass{width:64px;height:64px;right:120px;bottom:36px;background:rgba(51,170,255,.55);font-size:18px}
-#btnDash{width:64px;height:64px;right:36px;bottom:120px;background:rgba(255,204,0,.55);color:#222;font-size:18px}
+#joyZone{position:absolute;left:0;bottom:0;width:45%;height:55%;z-index:6;touch-action:none}
+.joy-base{position:absolute;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);pointer-events:none;display:none;transform:translate(-50%,-50%)}
+.joy-stick{position:absolute;width:60px;height:60px;border-radius:50%;background:rgba(255,51,102,.75);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,51,102,.6)}
+#actionZone{position:absolute;right:0;bottom:0;width:55%;height:60%;z-index:6;touch-action:none;pointer-events:none}
+.act-btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid rgba(255,255,255,.4);color:#fff;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s, background .08s;touch-action:none}
+.act-btn .lbl2{font-size:9px;opacity:.85;font-weight:600;margin-top:1px}
+.act-btn.on{transform:scale(.9)}
+#btnKick{width:78px;height:78px;right:20px;bottom:20px;background:rgba(255,51,102,.55);font-size:22px}
+#btnPass{width:60px;height:60px;right:110px;bottom:30px;background:rgba(51,170,255,.55);font-size:16px}
+#btnDash{width:56px;height:56px;right:30px;bottom:110px;background:rgba(255,204,0,.55);color:#222;font-size:16px}
+#btnMagnet{width:56px;height:56px;right:110px;bottom:110px;background:rgba(170,102,255,.55);font-size:20px}
 #btnKick.on{background:rgba(255,51,102,.95)}
 #btnPass.on{background:rgba(51,170,255,.95)}
 #btnDash.on{background:rgba(255,204,0,.95)}
-.act-btn.cd{opacity:.35}
-
-/* RESULT */
+#btnMagnet.on{background:rgba(170,102,255,.95)}
+.act-btn.cd{opacity:.4}
+#powerBar{position:absolute;bottom:220px;right:30px;width:20px;height:120px;background:rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.3);border-radius:10px;display:none;overflow:hidden;z-index:7}
+#powerBar.show{display:block}
+#powerFill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,#34c759,#ffcc00,#ff3366);height:0%;transition:height .03s linear}
+#emoteBar{position:absolute;top:60px;right:10px;display:flex;flex-direction:column;gap:6px;z-index:6}
+.emote-btn{pointer-events:auto;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:18px;cursor:pointer}
+.emote{position:absolute;font-size:26px;pointer-events:none;z-index:7;animation:emoteFloat 2s ease-out forwards}
+@keyframes emoteFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-80px) scale(1.5)}}
 #result{position:absolute;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:9;padding:20px}
 #result.show{display:flex}
-.result-box{background:rgba(20,20,30,.98);border-radius:20px;padding:28px;max-width:340px;width:100%;text-align:center;display:flex;flex-direction:column;gap:12px;border:2px solid rgba(255,255,255,.1)}
-.result-box h2{font-size:28px}
-.result-score{font-size:42px;font-weight:900;margin:10px 0}
-
-/* TEAM SELECT TOGGLE */
-.team-info{font-size:12px;color:#888;text-align:center;margin-top:6px}
+.result-box{background:rgba(20,20,30,.98);border-radius:20px;padding:24px;max-width:340px;width:100%;text-align:center;display:flex;flex-direction:column;gap:10px;border:2px solid rgba(255,255,255,.1)}
+.result-box h2{font-size:24px}
+.result-score{font-size:40px;font-weight:900}
+#trainPanel{position:absolute;inset:0;background:rgba(10,10,15,.97);display:none;flex-direction:column;justify-content:flex-start;align-items:center;padding:20px;z-index:11;overflow-y:auto}
+#trainPanel.show{display:flex}
+.train-toggle{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:340px;padding:10px 14px;background:rgba(255,255,255,.06);border-radius:10px;margin:4px 0;font-size:14px}
+.toggle{width:50px;height:28px;background:rgba(255,255,255,.2);border-radius:14px;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:24px;height:24px;background:#fff;border-radius:50%;transition:left .2s}
+.toggle.on{background:#34c759}
+.toggle.on::after{left:24px}
+#chatBox{position:absolute;left:8px;bottom:8px;width:220px;max-height:120px;overflow-y:auto;font-size:12px;background:rgba(0,0,0,.4);padding:6px 8px;border-radius:8px;z-index:5;pointer-events:none;display:flex;flex-direction:column;gap:2px}
+.chat-line{color:#ddd}
+.chat-line b{color:#ff3366}
 </style>
 </head>
 <body>
 
 <canvas id="c"></canvas>
 
-<!-- HUD -->
 <div id="hud" class="hidden">
   <div class="hud-top">
-    <div class="scorebox"><span class="red" id="redScore">0</span> : <span class="blue" id="blueScore">0</span></div>
-    <div class="pingbox" id="pingBox">-- ms</div>
-    <button class="exit" id="exitBtn">✕</button>
+    <div class="scorebox"><span class="red" id="redScore">0</span>:<span class="blue" id="blueScore">0</span></div>
+    <div class="timebox" id="timeBox" style="display:none">--:--</div>
+    <div style="display:flex;gap:6px"><button class="exit" id="emoteBtn">😀</button><button class="exit" id="exitBtn">✕</button></div>
   </div>
 </div>
 
 <div id="goalMsg"></div>
 <div id="countdown"></div>
+<div id="chatBox" class="hidden"></div>
+<div id="powerBar"><div id="powerFill"></div></div>
 
-<!-- Controls -->
-<div id="joyZone">
-  <div class="joy-base" id="joyBase"></div>
-  <div class="joy-stick" id="joyStick"></div>
-</div>
-
+<div id="joyZone"><div class="joy-base" id="joyBase"></div><div class="joy-stick" id="joyStick"></div></div>
 <div id="actionZone">
   <button class="act-btn" id="btnKick">⚽<span class="lbl2">Удар</span></button>
   <button class="act-btn" id="btnPass">➤<span class="lbl2">Пас</span></button>
   <button class="act-btn" id="btnDash">⚡<span class="lbl2">Рывок</span></button>
+  <button class="act-btn" id="btnMagnet">🧲<span class="lbl2">Магнит</span></button>
+</div>
+<div id="emoteBar" class="hidden">
+  <button class="emote-btn" data-em="👍">👍</button>
+  <button class="emote-btn" data-em="😂">😂</button>
+  <button class="emote-btn" data-em="🔥">🔥</button>
+  <button class="emote-btn" data-em="🎉">🎉</button>
+  <button class="emote-btn" data-em="👏">👏</button>
 </div>
 
-<!-- RESULT OVERLAY -->
-<div id="result">
-  <div class="result-box">
-    <h2 id="resultTitle">Победа!</h2>
-    <div class="result-score"><span class="red" id="resRed">0</span> : <span class="blue" id="resBlue">0</span></div>
-    <button class="btn primary" id="btnRematch">Реванш</button>
-    <button class="btn danger" id="btnToMenu">В меню</button>
-  </div>
+<div id="result"><div class="result-box">
+  <h2 id="resultTitle">Матч окончен</h2>
+  <div class="result-score"><span class="red" id="resRed">0</span> : <span class="blue" id="resBlue">0</span></div>
+  <div id="resultStats" class="hint"></div>
+  <button class="btn primary" id="btnRematch">Реванш</button>
+  <button class="btn danger" id="btnToMenu">В меню</button>
+</div></div>
+
+<div id="trainPanel">
+  <div class="title" style="font-size:22px">🎯 Тренировка</div>
+  <div class="train-toggle">Бот <div class="toggle on" id="tgBot"></div></div>
+  <div class="train-toggle">Сложность бота <select id="botDiff" style="max-width:120px;padding:4px;font-size:13px"><option value="easy">Легко</option><option value="normal" selected>Средне</option><option value="hard">Сложно</option></select></div>
+  <div class="train-toggle">Рывок бота <div class="toggle on" id="tgBotDash"></div></div>
+  <div class="train-toggle">Магнит бота <div class="toggle" id="tgBotMagnet"></div></div>
+  <div class="train-toggle">Арена <select id="trainArena" style="max-width:120px;padding:4px;font-size:13px"><option value="classic">Классика</option><option value="ice">Лёд</option><option value="obstacles">Препятствия</option><option value="narrow">Узкая</option></select></div>
+  <div class="train-toggle">Скорость игры <select id="trainSpeed" style="max-width:120px;padding:4px;font-size:13px"><option value="0.6">Очень медленно</option><option value="0.8" selected>Медленно</option><option value="1">Обычно</option><option value="1.3">Быстро</option></select></div>
+  <button class="btn primary" id="btnStartTrain">Начать тренировку</button>
+  <button class="btn gray" id="btnBackMenu2">В меню</button>
 </div>
 
-<!-- MENU -->
 <div id="menu" class="screen">
-  <div class="title">⚽ BALL<br><span>BRAWL</span></div>
+  <div class="title">⚽ BALL<br><span>BRAWL v3</span></div>
   <div class="lbl">Ник</div>
   <input id="nick" class="inp" maxlength="14" value="Игрок1">
   <div class="lbl">Цвет</div>
   <div id="colors" class="colors"></div>
-  <div class="lbl">Номер на круге (0–99)</div>
+  <div class="lbl">Скин круга</div>
+  <div id="skins" class="skins"></div>
+  <div class="lbl">Номер (0–99)</div>
   <input id="numberInput" class="inp" type="number" min="0" max="99" value="7">
-  
   <button id="btnCreate" class="btn primary">Создать комнату</button>
-  
   <div class="lbl">Код комнаты</div>
   <input id="code" class="inp code" maxlength="5" placeholder="XXXXX" autocapitalize="characters">
   <button id="btnJoin" class="btn green">Подключиться</button>
-  
-  <button id="btnTraining" class="btn gray">🎯 Тренировка (соло)</button>
-  
+  <button id="btnTraining" class="btn gray">🎯 Тренировка</button>
   <div id="err" class="err"></div>
 </div>
 
-<!-- LOBBY -->
 <div id="lobby" class="screen hidden">
-  <div class="title" style="font-size:24px">Лобби</div>
-  <div class="hint">Код комнаты:</div>
+  <div class="title" style="font-size:22px">Лобби</div>
+  <div class="hint">Код:</div>
   <div class="roomcode" id="roomCodeLbl">-----</div>
-  <div class="hint">Игроков: <b id="plCount">1</b>/4 • Команда: <b id="myTeam">-</b></div>
+  <div class="hint">Игроков: <b id="plCount">1</b>/4 • Ты: <b id="myTeam">-</b></div>
   <div class="players-box" id="plBox"></div>
+  <div class="setting-row"><label>Арена</label>
+    <select id="arenaSel"><option value="classic">Классика</option><option value="ice">Лёд</option><option value="obstacles">Препятствия</option><option value="narrow">Узкая</option></select></div>
+  <div class="setting-row"><label>Режим</label>
+    <select id="modeSel"><option value="classic">Классика (5 голов)</option><option value="time">Тайм (2 мин)</option><option value="golden">Золотой гол</option><option value="chaos">Хаос (3 мяча)</option></select></div>
   <button id="btnStart" class="btn primary">Начать матч</button>
   <div class="hint" id="hostHint"></div>
   <button id="btnLeave" class="btn danger">Выйти</button>
@@ -156,36 +180,52 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 <script>
 (() => {
 'use strict';
-
-// ==================== CONSTANTS ====================
-const ARENA_R = 520;
-const PLAYER_R = 32;
-const BALL_R = 22;
+  const PLAYER_R = 30, BALL_R = 20;
 const MAX_GOALS = 5;
-const TEAM_COLORS = { red: '#ff3366', blue: '#33aaff' };
-
-// ==================== STATE ====================
-const S = {
-  socket: null,
-  myId: null,
-  roomCode: null,
-  inGame: false,
-  training: false,
-  isHost: false,
-  players: {},       // id -> { x, y, vx, vy, name, color, team, number, dashCd }
-  ball: { x: 0, y: 0, vx: 0, vy: 0 },
-  myInput: { x: 0, y: 0 },
-  color: '#ff3366',
-  nick: 'Игрок1',
-  number: 7,
-  scores: { red: 0, blue: 0 },
-  cam: { x: 0, y: 0 },
-  lastFrame: performance.now(),
-  ping: 0,
-  lastInputSent: 0
+const ARENAS = {
+  classic:   { w: 1800, h: 1100 },
+  ice:       { w: 1800, h: 1100 },
+  obstacles: { w: 1900, h: 1200 },
+  narrow:    { w: 2400, h: 800 }
 };
 
-// ==================== CANVAS ====================
+const S = {
+  socket: null, myId: null, roomCode: null,
+  inGame: false, training: false, isHost: false,
+  players: {}, balls: [], myInput: { x: 0, y: 0 },
+  color: '#ff3366', nick: 'Игрок1', number: 7, skin: 'plain',
+  scores: { red: 0, blue: 0 },
+  cam: { x: 0, y: 0 }, lastFrame: performance.now(),
+  settings: { arena: 'classic', mode: 'classic' },
+  timeLeft: 0, trainSpeed: 0.8,
+  trainBot: { enabled: true, dash: true, magnet: false, diff: 'normal' },
+  power: 0, powerActive: false, powerSide: null,
+  aimDir: { x: 0, y: 0 },
+  achievements: {}, totalGoals: 0, totalWins: 0
+};
+
+// Load stats
+try {
+  const saved = JSON.parse(localStorage.getItem('bb_stats') || '{}');
+  S.achievements = saved.achievements || {};
+  S.totalGoals = saved.totalGoals || 0;
+  S.totalWins = saved.totalWins || 0;
+  if (saved.nick) S.nick = saved.nick;
+  if (saved.color) S.color = saved.color;
+  if (saved.number !== undefined) S.number = saved.number;
+  if (saved.skin) S.skin = saved.skin;
+} catch(e) {}
+
+function saveStats() {
+  try {
+    localStorage.setItem('bb_stats', JSON.stringify({
+      achievements: S.achievements, totalGoals: S.totalGoals,
+      totalWins: S.totalWins, nick: S.nick, color: S.color,
+      number: S.number, skin: S.skin
+    }));
+  } catch(e) {}
+}
+
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let W, H, DPR;
@@ -200,34 +240,86 @@ addEventListener('resize', resize);
 addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
-// ==================== UI ====================
 const $ = id => document.getElementById(id);
-const menu = $('menu'), lobby = $('lobby'), hud = $('hud');
+const menu = $('menu'), lobby = $('lobby'), hud = $('hud'), trainPanel = $('trainPanel');
 const joyBase = $('joyBase'), joyStick = $('joyStick');
 const joyZone = $('joyZone'), actionZone = $('actionZone');
-const btnKick = $('btnKick'), btnPass = $('btnPass'), btnDash = $('btnDash');
+const btnKick = $('btnKick'), btnPass = $('btnPass'), btnDash = $('btnDash'), btnMagnet = $('btnMagnet');
+const powerBar = $('powerBar'), powerFill = $('powerFill');
+
+// URLs auto-join
+const urlParams = new URLSearchParams(location.search);
+const autoRoom = urlParams.get('room');
 
 function showError(msg) {
   $('err').textContent = msg;
-  setTimeout(() => { $('err').textContent = ''; }, 4000);
+  setTimeout(() => { if ($('err').textContent === msg) $('err').textContent = ''; }, 4000);
 }
 
-// ==================== COLOR PICKER ====================
+// ============ AUDIO ============
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+function beep(freq, dur, type, vol) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type || 'sine';
+  o.frequency.value = freq;
+  g.gain.value = vol || 0.1;
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); 
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.stop(audioCtx.currentTime + dur);
+}
+function sfxKick() { beep(220, 0.08, 'square', 0.15); }
+function sfxGoal() { beep(523, 0.15, 'sine', 0.2); setTimeout(()=>beep(659,0.15,'sine',0.2),150); setTimeout(()=>beep(784,0.3,'sine',0.2),300); }
+function sfxWhistle() { beep(880, 0.2, 'sine', 0.15); }
+function vibrate(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
+
+// ============ COLORS + SKINS ============
 const COLORS = ['#ff3366','#33aaff','#ffcc00','#66ff66','#ff66cc','#ff8800','#aa66ff','#00ffcc'];
 const colorsEl = $('colors');
-COLORS.forEach((c, i) => {
+COLORS.forEach((c) => {
   const d = document.createElement('div');
-  d.className = 'swatch' + (i === 0 ? ' active' : '');
+  d.className = 'swatch' + (c === S.color ? ' active' : '');
   d.style.background = c;
   d.addEventListener('click', () => {
     S.color = c;
     document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
-    d.classList.add('active');
+    d.classList.add('active'); saveStats();
   });
   colorsEl.appendChild(d);
 });
 
-// ==================== SOCKET ====================
+const SKINS = [
+  { id: 'plain', label: 'Обычный' },
+  { id: 'star', label: '⭐' },
+  { id: 'fire', label: '🔥' },
+  { id: 'ice', label: '❄️' },
+  { id: 'metal', label: '⚙️' }
+];
+const skinsEl = $('skins');
+SKINS.forEach((sk) => {
+  const b = document.createElement('button');
+  b.className = 'skin' + (sk.id === S.skin ? ' active' : '');
+  b.textContent = sk.label;
+  b.addEventListener('click', () => {
+    S.skin = sk.id;
+    document.querySelectorAll('.skin').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); saveStats();
+  });
+  skinsEl.appendChild(b);
+});
+
+$('nick').value = S.nick;
+$('numberInput').value = S.number;
+
+// ============ SOCKET ============
 const socket = io();
 S.socket = socket;
 
@@ -236,97 +328,126 @@ socket.on('disconnect', () => { if (!S.training) showError('Соединение
 
 socket.on('lobbyUpdate', (d) => {
   S.players = {};
-  d.players.forEach(p => {
-    if (!S.players[p.id]) S.players[p.id] = {};
-    Object.assign(S.players[p.id], p);
-  });
+  d.players.forEach(p => { S.players[p.id] = { ...p }; });
   S.isHost = (d.host === S.myId);
+  S.settings = d.settings || S.settings;
   renderLobbyPlayers();
-});
-
-socket.on('playerJoined', (p) => {
-  if (!S.players[p.id]) S.players[p.id] = {};
-  Object.assign(S.players[p.id], p);
-  renderLobbyPlayers();
-});
-
-socket.on('playerLeft', (id) => {
-  delete S.players[id];
-  renderLobbyPlayers();
+  if (S.isHost) { 
+    $('arenaSel').value = S.settings.arena; 
+    $('modeSel').value = S.settings.mode;
+  }
 });
 
 socket.on('state', (snap) => {
-  S.ball = snap.ball;
+  S.balls = snap.balls;
   for (const id in snap.players) {
     if (!S.players[id]) S.players[id] = {};
     const s = snap.players[id];
-    // Target for interpolation
     S.players[id]._tx = s.x;
     S.players[id]._ty = s.y;
-    S.players[id]._tvx = s.vx;
-    S.players[id]._tvy = s.vy;
     S.players[id].dashCd = s.dashCd;
-    if (S.players[id].x === undefined) {
-      S.players[id].x = s.x;
-      S.players[id].y = s.y;
-    }
+    S.players[id].magnetOn = s.magnetOn;
+    if (S.players[id].x === undefined) { S.players[id].x = s.x; S.players[id].y = s.y; }
   }
-  renderScoreboard();
+  S.timeLeft = snap.timeLeft || 0;
+  renderTime();
 });
 
 socket.on('goal', (d) => {
-  S.scores.red = d.red;
-  S.scores.blue = d.blue;
+  S.scores.red = d.red; S.scores.blue = d.blue;
   updateScoreUI();
-  showGoal('ГОЛ! ' + (d.scorer || ''));
+  showGoal('ГОЛ! ' + (d.scorerName || ''));
+  sfxGoal(); vibrate(80);
+  S.totalGoals++;
+  checkAchievements();
+  saveStats();
 });
 
 socket.on('matchEnd', (d) => {
+  const winnerTeam = d.winner;
+  const myTeam = S.players[S.myId]?.team;
+  if (winnerTeam === myTeam) {
+    S.totalWins++;
+    saveStats();
+  }
+  checkAchievements();
   showResult(d.winner, d.red, d.blue);
 });
 
-socket.on('countdown', () => {
-  startCountdown();
-});
+socket.on('countdown', () => { initAudio(); sfxWhistle(); startCountdown(); });
 
 socket.on('gameStarted', (d) => {
-  startGameClient(d.players);
+  startGameClient(d.players, d.settings);
 });
 
-// ==================== MENU BUTTONS ====================
+socket.on('emote', (d) => { showEmote(d.id, d.em); });
+socket.on('chat', (d) => { addChat(d.name, d.msg); });
+
+// ============ MENU BUTTONS ============
 $('btnCreate').addEventListener('click', () => {
+  initAudio();
   S.nick = $('nick').value.trim() || 'Игрок';
   S.number = parseInt($('numberInput').value) || 0;
-  socket.emit('createRoom', { name: S.nick, color: S.color, number: S.number }, (res) => {
+  saveStats();
+  socket.emit('createRoom', { name: S.nick, color: S.color, number: S.number, skin: S.skin }, (res) => {
     if (!res.ok) return showError(res.error || 'Ошибка');
     S.roomCode = res.code;
     S.isHost = true;
     S.players = {};
     res.players.forEach(p => { S.players[p.id] = { ...p }; });
+    S.settings = res.settings;
     enterLobby();
   });
 });
 
 $('btnJoin').addEventListener('click', () => {
+  initAudio();
   const code = $('code').value.trim().toUpperCase();
   const name = $('nick').value.trim() || 'Игрок';
   if (code.length !== 5) return showError('Код из 5 символов');
   S.nick = name;
   S.number = parseInt($('numberInput').value) || 0;
-  socket.emit('joinRoom', { code, name, color: S.color, number: S.number }, (res) => {
+  saveStats();
+  socket.emit('joinRoom', { code, name, color: S.color, number: S.number, skin: S.skin }, (res) => {
     if (!res.ok) return showError(res.error || 'Ошибка');
     S.roomCode = res.code;
     S.isHost = (res.host === S.myId);
     S.players = {};
     res.players.forEach(p => { S.players[p.id] = { ...p }; });
+    S.settings = res.settings;
     enterLobby();
   });
 });
 
 $('btnTraining').addEventListener('click', () => {
+  initAudio();
+  menu.classList.add('hidden');
+  trainPanel.classList.add('show');
+});
+
+$('btnBackMenu2').addEventListener('click', () => {
+  trainPanel.classList.remove('show');
+  menu.classList.remove('hidden');
+});
+
+// Toggles in training
+function bindToggle(id, getter, setter) {
+  const el = $(id);
+  el.addEventListener('click', () => {
+    setter(!getter());
+    el.classList.toggle('on', getter());
+  });
+}
+bindToggle('tgBot', () => S.trainBot.enabled, v => S.trainBot.enabled = v);
+bindToggle('tgBotDash', () => S.trainBot.dash, v => S.trainBot.dash = v);
+bindToggle('tgBotMagnet', () => S.trainBot.magnet, v => S.trainBot.magnet = v);
+
+$('btnStartTrain').addEventListener('click', () => {
+  S.trainBot.diff = $('botDiff').value;
+  S.trainSpeed = parseFloat($('trainSpeed').value) || 1;
+  S.settings.arena = $('trainArena').value;
   S.training = true;
-  S.nick = $('nick').value.trim() || 'Игрок';
-  S.number = parseInt($('numberInput').value) || 0;
+  trainPanel.classList.remove('show');
   startTrainingMode();
 });
 
@@ -343,19 +464,17 @@ function renderLobbyPlayers() {
   const list = Object.values(S.players);
   $('plCount').textContent = list.length;
   const myP = S.players[S.myId];
-  $('myTeam').textContent = myP ? (myP.team === 'red' ? '🔴 Красные' : '🔵 Синие') : '-';
-
+  $('myTeam').textContent = myP ? (myP.team === 'red' ? '🔴' : '🔵') : '-';
   list.forEach(p => {
     const d = document.createElement('div');
     d.className = 'pl-item';
-    const teamLabel = p.team === 'red' ? '🔴' : '🔵';
     const teamBg = p.team === 'red' ? 'rgba(255,51,102,.3)' : 'rgba(51,170,255,.3)';
+    const teamLabel = p.team === 'red' ? '🔴' : '🔵';
     d.innerHTML = `<div class="pl-dot" style="background:${p.color}"></div>
       <span>#${p.number} ${escapeHtml(p.name)}${p.id === S.myId ? ' (вы)' : ''}</span>
       <span class="pl-team" style="background:${teamBg}">${teamLabel}</span>`;
     box.appendChild(d);
   });
-
   if (S.isHost) {
     $('btnStart').style.display = 'block';
     $('hostHint').textContent = list.length >= 2 ? 'Нажми «Начать матч»' : 'Нужно минимум 2 игрока';
@@ -367,25 +486,24 @@ function renderLobbyPlayers() {
   }
 }
 
-$('btnStart').addEventListener('click', () => {
-  socket.emit('startGame');
+$('arenaSel').addEventListener('change', () => {
+  if (S.isHost) socket.emit('updateSettings', { arena: $('arenaSel').value });
 });
-$('btnLeave').addEventListener('click', () => {
-  socket.disconnect();
-  setTimeout(() => location.reload(), 200);
+$('modeSel').addEventListener('change', () => {
+  if (S.isHost) socket.emit('updateSettings', { mode: $('modeSel').value });
 });
+
+$('btnStart').addEventListener('click', () => { initAudio(); socket.emit('startGame'); });
+$('btnLeave').addEventListener('click', () => { socket.disconnect(); setTimeout(()=>location.reload(),200); });
 $('exitBtn').addEventListener('click', () => {
-  if (confirm('Выйти из матча?')) {
-    socket.disconnect();
-    setTimeout(() => location.reload(), 200);
-  }
+  if (confirm('Выйти?')) { socket.disconnect(); setTimeout(()=>location.reload(),200); }
 });
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
 
-// ==================== GAME START ====================
+// ============ GAME START ============
 function startCountdown() {
   const el = $('countdown');
   el.classList.add('show');
@@ -399,24 +517,36 @@ function startCountdown() {
   }, 1000);
 }
 
-function startGameClient(players) {
+function startGameClient(players, settings) {
   lobby.classList.add('hidden');
   menu.classList.add('hidden');
   hud.classList.remove('hidden');
   $('actionZone').classList.remove('hidden');
   $('joyZone').style.display = 'block';
   S.inGame = true;
-  S.isHost = S.isHost; // keep
+  S.settings = settings || S.settings;
   S.players = {};
   players.forEach(p => { S.players[p.id] = { ...p, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0 }; });
   S.scores = { red: 0, blue: 0 };
+  S.timeLeft = S.settings.mode === 'time' ? 120 : 0;
   updateScoreUI();
+  if (S.settings.mode === 'time') $('timeBox').style.display = 'block';
+  if (S.settings.mode === 'chaos') S.balls = [{x:0,y:0,vx:0,vy:0},{x:0,y:-200,vx:0,vy:0},{x:0,y:200,vx:0,vy:0}];
+  else S.balls = [{x:0,y:0,vx:0,vy:0}];
   requestAnimationFrame(loop);
 }
 
 function updateScoreUI() {
   $('redScore').textContent = S.scores.red;
   $('blueScore').textContent = S.scores.blue;
+}
+
+function renderTime() {
+  if (S.settings.mode !== 'time') return;
+  const t = Math.max(0, Math.ceil(S.timeLeft));
+  const m = Math.floor(t/60);
+  const s = t % 60;
+  $('timeBox').textContent = m + ':' + (s<10?'0':'') + s;
 }
 
 let goalTimer = null;
@@ -429,144 +559,252 @@ function showGoal(text) {
 }
 
 function showResult(winner, red, blue) {
-  $('resultTitle').textContent = winner === 'red' ? '🔴 Победа красных!' : '🔵 Победа синих!';
-  $('resultTitle').textContent = 'Матч окончен';
+  $('resultTitle').textContent = winner === 'draw' ? 'Ничья' : (winner === 'red' ? '🔴 Победа красных!' : '🔵 Победа синих!');
   $('resRed').textContent = red;
   $('resBlue').textContent = blue;
+  $('resultStats').textContent = `Всего голов: ${S.totalGoals} • Побед: ${S.totalWins}`;
   $('result').classList.add('show');
   S.inGame = false;
 }
 
 $('btnRematch').addEventListener('click', () => {
   $('result').classList.remove('show');
-  if (S.training) {
-    S.training = false;
-    startTrainingMode();
-  } else {
-    socket.emit('rematch');
-  }
+  if (S.training) { S.training = false; startTrainingMode(); }
+  else socket.emit('rematch');
 });
-$('btnToMenu').addEventListener('click', () => {
-  socket.disconnect();
-  setTimeout(() => location.reload(), 200);
-});
+$('btnToMenu').addEventListener('click', () => { socket.disconnect(); setTimeout(()=>location.reload(),200); });
 
-// ==================== JOYSTICK ====================
-let joyActive = false;
-let joyId = null;
-let joyStart = { x: 0, y: 0 };
-const JOY_RADIUS = 75;
-const JOY_DEAD = 8;
-
-function joyStartHandler(clientX, clientY, touchId) {
-  joyActive = true;
-  joyId = touchId;
-  joyStart.x = clientX;
-  joyStart.y = clientY;
-  joyBase.style.display = 'block';
-  joyStick.style.display = 'block';
-  joyBase.style.left = clientX + 'px';
-  joyBase.style.top = clientY + 'px';
-  joyStick.style.left = clientX + 'px';
-  joyStick.style.top = clientY + 'px';
+function addChat(name, msg) {
+  const box = $('chatBox');
+  box.classList.remove('hidden');
+  const line = document.createElement('div');
+  line.className = 'chat-line';
+  line.innerHTML = `<b>${escapeHtml(name)}:</b> ${escapeHtml(msg)}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+  setTimeout(() => { if (line.parentNode) line.remove(); }, 15000);
 }
 
-function joyMoveHandler(clientX, clientY) {
+function showEmote(id, em) {
+  if (!S.players[id]) return;
+  const p = S.players[id];
+  const sx = (p.x - S.cam.x) * 0.7 + innerWidth/2;
+  const sy = (p.y - S.cam.y) * 0.7 + innerHeight/2;
+  const el = document.createElement('div');
+  el.className = 'emote';
+  el.textContent = em;
+  el.style.left = (sx - 15) + 'px';
+  el.style.top = (sy - 60) + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+$('emoteBtn').addEventListener('click', () => {
+  $('emoteBar').classList.toggle('hidden');
+});
+document.querySelectorAll('.emote-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    const em = b.dataset.em;
+    if (S.training) {
+      showEmote('trainer', em);
+    } else {
+      socket.emit('emote', em);
+      showEmote(S.myId, em);
+    }
+    $('emoteBar').classList.add('hidden');
+  });
+});
+
+// ============ JOYSTICK ============
+let joyActive = false, joyId = null, joyStart = { x:0, y:0 };
+const JOY_RADIUS = 70, JOY_DEAD = 8;
+
+function joyStartH(x, y, id) {
+  joyActive = true; joyId = id;
+  joyStart.x = x; joyStart.y = y;
+  joyBase.style.display = 'block'; joyStick.style.display = 'block';
+  joyBase.style.left = x + 'px'; joyBase.style.top = y + 'px';
+  joyStick.style.left = x + 'px'; joyStick.style.top = y + 'px';
+}
+function joyMoveH(x, y) {
   if (!joyActive) return;
-  let dx = clientX - joyStart.x;
-  let dy = clientY - joyStart.y;
-  const len = Math.hypot(dx, dy);
-  const maxL = JOY_RADIUS - 15;
-  if (len > maxL) { dx = (dx/len)*maxL; dy = (dy/len)*maxL; }
+  let dx = x - joyStart.x, dy = y - joyStart.y;
+  const len = Math.hypot(dx, dy), maxL = JOY_RADIUS - 15;
+  if (len > maxL) { dx = dx/len*maxL; dy = dy/len*maxL; }
   joyStick.style.left = (joyStart.x + dx) + 'px';
   joyStick.style.top = (joyStart.y + dy) + 'px';
-  const dead = JOY_DEAD;
-  if (Math.hypot(dx, dy) < dead) {
-    S.myInput.x = 0; S.myInput.y = 0;
-  } else {
-    S.myInput.x = dx / maxL;
-    S.myInput.y = dy / maxL;
-  }
+  if (Math.hypot(dx, dy) < JOY_DEAD) { S.myInput.x = 0; S.myInput.y = 0; }
+  else { S.myInput.x = dx/maxL; S.myInput.y = dy/maxL; }
 }
-
-function joyEndHandler() {
-  joyActive = false;
-  joyId = null;
-  joyBase.style.display = 'none';
-  joyStick.style.display = 'none';
-  S.myInput.x = 0;
-  S.myInput.y = 0;
+function joyEndH() {
+  joyActive = false; joyId = null;
+  joyBase.style.display = 'none'; joyStick.style.display = 'none';
+  S.myInput.x = 0; S.myInput.y = 0;
 }
 
 joyZone.addEventListener('touchstart', (e) => {
-  if (!S.inGame) return;
-  e.preventDefault();
+  if (!S.inGame) return; e.preventDefault();
   if (joyActive) return;
   const t = e.changedTouches[0];
-  joyStartHandler(t.clientX, t.clientY, t.identifier);
+  joyStartH(t.clientX, t.clientY, t.identifier);
 }, { passive: false });
-
 joyZone.addEventListener('touchmove', (e) => {
-  if (!joyActive) return;
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    if (t.identifier === joyId) joyMoveHandler(t.clientX, t.clientY);
-  }
+  if (!joyActive) return; e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joyId) joyMoveH(t.clientX, t.clientY);
 }, { passive: false });
-
 joyZone.addEventListener('touchend', (e) => {
-  for (const t of e.changedTouches) {
-    if (t.identifier === joyId) joyEndHandler();
-  }
+  for (const t of e.changedTouches) if (t.identifier === joyId) joyEndH();
 }, { passive: false });
+joyZone.addEventListener('touchcancel', joyEndH, { passive: false });
 
-joyZone.addEventListener('touchcancel', joyEndHandler, { passive: false });
-
-// Mouse fallback for desktop testing
-let mouseJoyActive = false;
+let mouseJoy = false;
 joyZone.addEventListener('mousedown', (e) => {
-  if (!S.inGame) return;
-  mouseJoyActive = true;
-  joyStartHandler(e.clientX, e.clientY, 'mouse');
+  if (!S.inGame) return; mouseJoy = true;
+  joyStartH(e.clientX, e.clientY, 'm');
 });
-addEventListener('mousemove', (e) => {
-  if (!mouseJoyActive) return;
-  joyMoveHandler(e.clientX, e.clientY);
-});
-addEventListener('mouseup', () => {
-  if (!mouseJoyActive) return;
-  mouseJoyActive = false;
-  joyEndHandler();
-});
+addEventListener('mousemove', (e) => { if (mouseJoy) joyMoveH(e.clientX, e.clientY); });
+addEventListener('mouseup', () => { if (mouseJoy) { mouseJoy = false; joyEndH(); } });
 
-// ==================== ACTION BUTTONS ====================
-function bindAction(btn, action) {
-  function on(e) {
-    e.preventDefault();
+// ============ ACTIONS with charged/curved kick ============
+function makeActionButton(btn, kind) {
+  let pressStart = 0;
+  let pressMove = { x: 0, y: 0 };
+  let charging = false;
+  let chargeRaf = 0;
+
+  function startCharge(clientX, clientY) {
+    if (!S.inGame) return;
+    charging = true;
+    pressStart = performance.now();
+    pressMove = { x: clientX, y: clientY };
     btn.classList.add('on');
-    if (S.training) {
-      doTrainingAction(action);
-    } else {
-      socket.emit('action', action);
+    if (kind === 'kick' || kind === 'pass') {
+      powerBar.classList.add('show');
+      powerFill.style.height = '0%';
+      chargeRaf = requestAnimationFrame(chargeTick);
     }
   }
-  function off(e) {
-    e.preventDefault();
-    btn.classList.remove('on');
+  function chargeTick() {
+    if (!charging) return;
+    const dur = Math.min(1.5, (performance.now() - pressStart) / 1000);
+    S.power = dur / 1.5;
+    powerFill.style.height = (S.power * 100) + '%';
+    chargeRaf = requestAnimationFrame(chargeTick);
   }
-  btn.addEventListener('touchstart', on, { passive: false });
-  btn.addEventListener('touchend', off, { passive: false });
-  btn.addEventListener('touchcancel', off, { passive: false });
-  btn.addEventListener('mousedown', on);
-  btn.addEventListener('mouseup', off);
-  btn.addEventListener('mouseleave', off);
+  function endCharge(clientX, clientY) {
+    if (!charging) return;
+    charging = false;
+    btn.classList.remove('on');
+    powerBar.classList.remove('show');
+    cancelAnimationFrame(chargeRaf);
+
+    // Compute drag direction (for curve)
+    const dragX = (clientX || pressMove.x) - pressMove.x;
+    const dragY = (clientY || pressMove.y) - pressMove.y;
+    const dl = Math.hypot(dragX, dragY);
+    let dirX = 0, dirY = 0;
+    if (dl > 15) {
+      dirX = dragX / dl;
+      dirY = dragY / dl;
+    }
+
+    // Compute power level
+    const dur = Math.min(1.5, (performance.now() - pressStart) / 1000);
+    const power = Math.max(0.2, Math.min(1, dur / 1.5));
+
+    if (S.training) {
+      doTrainAction(kind, dirX, dirY, power);
+    } else {
+      socket.emit('action', { type: kind, dirX, dirY, power });
+    }
+
+    if (kind === 'kick') sfxKick();
+    if (kind === 'dash') vibrate(30);
+    S.power = 0;
+  }
+
+  btn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    startCharge(t.clientX, t.clientY);
+    if (kind === 'magnet') {
+      if (S.training) { S.players['trainer'].magnetOn = true; }
+      else socket.emit('action', { type: 'magnet_on' });
+    }
+    if (kind === 'dash') {
+      if (S.training) doTrainAction('dash', 0, 0, 1);
+      else socket.emit('action', { type: 'dash' });
+    }
+  }, { passive: false });
+
+  btn.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === 0 || true) {
+        // update only if this is our touch — simplified
+        pressMove.x2 = t.clientX; pressMove.y2 = t.clientY;
+        // Track drag for aim indicator
+        if (kind === 'kick' || kind === 'pass') {
+          const dx = t.clientX - pressMove.x;
+          const dy = t.clientY - pressMove.y;
+          const dl = Math.hypot(dx, dy);
+          if (dl > 10) {
+            S.aimDir = { x: dx/dl, y: dy/dl };
+          }
+        }
+      }
+    }
+  }, { passive: false });
+
+  btn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    endCharge(t.clientX, t.clientY);
+    if (kind === 'magnet') {
+      if (S.training) { S.players['trainer'].magnetOn = false; }
+      else socket.emit('action', { type: 'magnet_off' });
+    }
+  }, { passive: false });
+
+  btn.addEventListener('touchcancel', (e) => {
+    e.preventDefault();
+    endCharge();
+    if (kind === 'magnet') {
+      if (S.training) { S.players['trainer'].magnetOn = false; }
+      else socket.emit('action', { type: 'magnet_off' });
+    }
+  }, { passive: false });
+
+  // Mouse fallback
+  btn.addEventListener('mousedown', (e) => {
+    startCharge(e.clientX, e.clientY);
+    if (kind === 'magnet') {
+      if (S.training) S.players['trainer'].magnetOn = true;
+      else socket.emit('action', { type: 'magnet_on' });
+    }
+    if (kind === 'dash') {
+      if (S.training) doTrainAction('dash', 0, 0, 1);
+      else socket.emit('action', { type: 'dash' });
+    }
+  });
+  btn.addEventListener('mouseup', (e) => {
+    endCharge(e.clientX, e.clientY);
+    if (kind === 'magnet') {
+      if (S.training) S.players['trainer'].magnetOn = false;
+      else socket.emit('action', { type: 'magnet_off' });
+    }
+  });
+  btn.addEventListener('mouseleave', (e) => endCharge());
 }
 
-bindAction(btnKick, 'kick');
-bindAction(btnPass, 'pass');
-bindAction(btnDash, 'dash');
+makeActionButton(btnKick, 'kick');
+makeActionButton(btnPass, 'pass');
+makeActionButton(btnDash, 'dash');
+makeActionButton(btnMagnet, 'magnet');
 
-// ==================== TRAINING MODE ====================
+// ============ TRAINING MODE ============
+let trainBotTimer = 0;
+
 function startTrainingMode() {
   menu.classList.add('hidden');
   lobby.classList.add('hidden');
@@ -575,257 +813,276 @@ function startTrainingMode() {
   $('joyZone').style.display = 'block';
   S.inGame = true;
   S.training = true;
-
-  // Мой игрок
   S.myId = 'trainer';
   S.players = {};
   S.players['trainer'] = {
-    x: -320, y: 0, vx: 0, vy: 0,
-    name: S.nick, color: S.color, team: 'red', number: S.number, dashCd: 0
+    x: -(ARENAS[S.settings.arena].w/2) + 150, y: 0, vx: 0, vy: 0,
+    name: S.nick, color: S.color, team: 'red', number: S.number, skin: S.skin, dashCd: 0, magnetOn: false
   };
-  // Бот-синий
-  S.players['bot'] = {
-    x: 320, y: 0, vx: 0, vy: 0,
-    name: 'Бот', color: '#33aaff', team: 'blue', number: 99, dashCd: 0
-  };
-  S.ball = { x: 0, y: 0, vx: 0, vy: 0 };
+  if (S.trainBot.enabled) {
+    S.players['bot'] = {
+      x: (ARENAS[S.settings.arena].w/2) - 150, y: 0, vx: 0, vy: 0,
+      name: 'Бот', color: '#33aaff', team: 'blue', number: 99, skin: 'plain', dashCd: 0, magnetOn: false
+    };
+  }
+  S.balls = [{ x: 0, y: 0, vx: 0, vy: 0 }];
   S.scores = { red: 0, blue: 0 };
   updateScoreUI();
-
   requestAnimationFrame(trainingLoop);
 }
 
-let trainBotTimer = 0;
 function trainingLoop(now) {
   if (!S.training) return;
-  const dt = Math.min(0.05, (now - S.lastFrame) / 1000);
+  const rawDt = Math.min(0.05, (now - S.lastFrame) / 1000);
+  const dt = rawDt * S.trainSpeed;
   S.lastFrame = now;
 
+  const bd = ARENAS[S.settings.arena];
+  const minX = -bd.w/2, maxX = bd.w/2, minY = -bd.h/2, maxY = bd.h/2;
+  const iceF = S.settings.arena === 'ice' ? 0.998 : 0.982;
   const me = S.players['trainer'];
   const bot = S.players['bot'];
-  const b = S.ball;
 
-  // --- Bot AI ---
-  trainBotTimer -= dt;
-  if (trainBotTimer <= 0) {
-    trainBotTimer = 0.5;
-    // Движемся к мячу или защищаем ворота
-    let tx, ty;
-    const dist = Math.hypot(b.x - bot.x, b.y - bot.y);
-    if (dist < 300) { tx = b.x; ty = b.y; }
-    else { tx = 150; ty = b.y * 0.5; }
-    const dx = tx - bot.x, dy = ty - bot.y;
-    const dl = Math.hypot(dx, dy) || 1;
-    bot._ix = dx / dl;
-    bot._iy = dy / dl;
+  // Bot AI
+  if (bot) {
+    trainBotTimer -= dt;
+    if (trainBotTimer <= 0) {
+      trainBotTimer = 0.4;
+      const b = S.balls[0];
+      const diff = S.trainBot.diff;
+      const aggression = diff === 'hard' ? 1 : diff === 'normal' ? 0.6 : 0.3;
+      const dist = Math.hypot(b.x - bot.x, b.y - bot.y);
+      let tx, ty;
+      if (dist < 350 && Math.random() < aggression + 0.3) {
+        // Attack ball
+        tx = b.x; ty = b.y;
+      } else {
+        // Defend own goal (right side, at maxX)
+        tx = maxX - 200;
+        ty = b.y * 0.7 + (Math.sin(now/1000 + bot.x) * 40);
+      }
+      const dx = tx - bot.x, dy = ty - bot.y;
+      const dl = Math.hypot(dx, dy) || 1;
+      bot._ix = dx/dl; bot._iy = dy/dl;
+    }
+    // Bot dash
+    if (S.trainBot.dash && bot.dashCd <= 0 && Math.random() < 0.01 * dt * 60) {
+      bot.dashCd = 2.5;
+      const inp = { x: bot._ix || 0, y: bot._iy || 0 };
+      bot.vx += inp.x * 480; bot.vy += inp.y * 480;
+    }
+    // Bot magnet
+    if (S.trainBot.magnet) bot.magnetOn = true; else bot.magnetOn = false;
+
+    const accel = 700;
+    bot.vx += (bot._ix || 0) * accel * dt;
+    bot.vy += (bot._iy || 0) * accel * dt;
+    const bsp = Math.hypot(bot.vx, bot.vy);
+    if (bsp > 260) { bot.vx = bot.vx/bsp*260; bot.vy = bot.vy/bsp*260; }
+    const fr = Math.pow(iceF, dt * 60);
+    bot.vx *= fr; bot.vy *= fr;
+    bot.x += bot.vx * dt; bot.y += bot.vy * dt;
+    if (bot.dashCd > 0) bot.dashCd -= dt;
   }
-  const accel = 950;
-  bot.vx += (bot._ix || 0) * accel * dt;
-  bot.vy += (bot._iy || 0) * accel * dt;
-  const bsp = Math.hypot(bot.vx, bot.vy);
-  if (bsp > 380) { bot.vx = bot.vx / bsp * 380; bot.vy = bot.vy / bsp * 380; }
-  const fr = Math.pow(0.985, dt * 60);
-  bot.vx *= fr; bot.vy *= fr;
-  bot.x += bot.vx * dt;
-  bot.y += bot.vy * dt;
 
-  // --- Me ---
+  // Me
+  const accel = 700;
   me.vx += S.myInput.x * accel * dt;
   me.vy += S.myInput.y * accel * dt;
   const msp = Math.hypot(me.vx, me.vy);
-  if (msp > 380) { me.vx = me.vx / msp * 380; me.vy = me.vy / msp * 380; }
-  if (Math.hypot(S.myInput.x, S.myInput.y) < 0.01) { me.vx *= fr; me.vy *= fr; }
-  me.x += me.vx * dt;
-  me.y += me.vy * dt;
+  if (msp > 260) { me.vx = me.vx/msp*260; me.vy = me.vy/msp*260; }
+  if (Math.hypot(S.myInput.x, S.myInput.y) < 0.01) {
+    const fr = Math.pow(iceF, dt * 60);
+    me.vx *= fr; me.vy *= fr;
+  }
+  me.x += me.vx * dt; me.y += me.vy * dt;
   if (me.dashCd > 0) me.dashCd -= dt;
-  if (bot.dashCd > 0) bot.dashCd -= dt;
 
-  // --- Ball ---
-  const bf = Math.pow(0.99, dt * 60);
-  b.vx *= bf; b.vy *= bf;
-  b.x += b.vx * dt;
-  b.y += b.vy * dt;
-
-  // --- Player-ball collisions ---
+  // Magnet force
   [me, bot].forEach(p => {
-    const dx = b.x - p.x, dy = b.y - p.y;
-    const d = Math.hypot(dx, dy);
-    const minD = p.r || PLAYER_R + BALL_R;
-    const md = PLAYER_R + BALL_R;
-    if (d < md && d > 0.001) {
-      const nx = dx / d, ny = dy / d;
-      const ov = md - d;
-      b.x += nx * ov; b.y += ny * ov;
-      p.x -= nx * ov * 0.3; p.y -= ny * ov * 0.3;
-      const pSp = Math.hypot(p.vx, p.vy);
-      const kick = Math.max(180, pSp * 1.2);
-      b.vx += nx * kick; b.vy += ny * kick;
-      const bSp = Math.hypot(b.vx, b.vy);
-      if (bSp > 950) { b.vx = b.vx/bSp*950; b.vy = b.vy/bSp*950; }
-      S.lastToucher = p === me ? 'trainer' : 'bot';
+    if (!p || !p.magnetOn) return;
+    for (const b of S.balls) {
+      const dx = p.x - b.x, dy = p.y - b.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 220 && d > 1) {
+        const f = 320 * (1 - d/220);
+        b.vx += (dx/d) * f * dt;
+        b.vy += (dy/d) * f * dt;
+      }
     }
   });
 
-  // --- Player-player ---
-  {
-    const a = me, c = bot;
-    const dx = c.x - a.x, dy = c.y - a.y;
+  // Balls
+  for (const b of S.balls) {
+    const bf = Math.pow(0.99, dt * 60);
+    b.vx *= bf; b.vy *= bf;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    const bsp = Math.hypot(b.vx, b.vy);
+    if (bsp > 700) { b.vx = b.vx/bsp*700; b.vy = b.vy/bsp*700; }
+  }
+
+  // Player-player
+  if (bot) {
+    const dx = bot.x - me.x, dy = bot.y - me.y;
     const d = Math.hypot(dx, dy);
     const md = PLAYER_R * 2;
     if (d < md && d > 0.001) {
-      const nx = dx / d, ny = dy / d;
-      const ov = md - d;
-      a.x -= nx * ov * 0.5; a.y -= ny * ov * 0.5;
-      c.x += nx * ov * 0.5; c.y += ny * ov * 0.5;
+      const nx = dx/d, ny = dy/d, ov = md - d;
+      me.x -= nx*ov*0.5; me.y -= ny*ov*0.5;
+      bot.x += nx*ov*0.5; bot.y += ny*ov*0.5;
     }
   }
 
-  // --- Bounds ---
-  [me, bot, b].forEach(o => {
-    const r = o === b ? BALL_R : PLAYER_R;
-    const dist = Math.hypot(o.x, o.y);
-    const maxD = ARENA_R - r;
-    if (dist > maxD) {
-      const nx = o.x / dist, ny = o.y / dist;
-      o.x = nx * maxD; o.y = ny * maxD;
-      const vn = o.vx * nx + o.vy * ny;
-      if (vn > 0) { o.vx -= 1.72 * vn * nx; o.vy -= 1.72 * vn * ny; }
+  // Player-ball
+  [me, bot].filter(Boolean).forEach(p => {
+    for (const b of S.balls) {
+      const dx = b.x - p.x, dy = b.y - p.y;
+      const d = Math.hypot(dx, dy);
+      const md = PLAYER_R + BALL_R;
+      if (d < md && d > 0.001) {
+        const nx = dx/d, ny = dy/d, ov = md - d;
+        b.x += nx*ov; b.y += ny*ov;
+        p.x -= nx*ov*0.3; p.y -= ny*ov*0.3;
+        const pSp = Math.hypot(p.vx, p.vy);
+        const kick = Math.max(100, pSp * 1.1);
+        b.vx += nx*kick; b.vy += ny*kick;
+      }
     }
   });
 
-  // --- Goal ---
-  const bd = Math.hypot(b.x, b.y);
-  if (bd > ARENA_R + BALL_R) {
-    const scorer = S.lastToucher;
-    const team = scorer === 'trainer' ? 'red' : 'blue';
-    S.scores[team]++;
-    updateScoreUI();
-    showGoal('ГОЛ!');
-    if (S.scores[team] >= MAX_GOALS) {
-      showResult(team, S.scores.red, S.scores.blue);
-      S.training = false;
-      return;
-    }
-    // reset
-    b.x = 0; b.y = 0; b.vx = 0; b.vy = 0;
-    me.x = -320; me.y = 0; me.vx = 0; me.vy = 0;
-    bot.x = 320; bot.y = 0; bot.vx = 0; bot.vy = 0;
-    S.lastToucher = null;
+  // Bounds
+  [me, bot].filter(Boolean).forEach(p => boundRect(p, PLAYER_R, minX, maxX, minY, maxY, 0.72));
+  for (const b of S.balls) {
+    if (b.x < minX + BALL_R) { b.x = minX + BALL_R; b.vx = Math.abs(b.vx)*0.72; }
+    if (b.x > maxX - BALL_R) { b.x = maxX - BALL_R; b.vx = -Math.abs(b.vx)*0.72; }
+    if (b.y < minY + BALL_R) { b.y = minY + BALL_R; b.vy = Math.abs(b.vy)*0.72; }
+    if (b.y > maxY - BALL_R) { b.y = maxY - BALL_R; b.vy = -Math.abs(b.vy)*0.72; }
   }
 
-  // --- Render ---
-  S.cam.x += (me.x - S.cam.x) * Math.min(1, 6 * dt);
-  S.cam.y += (me.y - S.cam.y) * Math.min(1, 6 * dt);
+  // Camera
+  S.cam.x += (me.x - S.cam.x) * Math.min(1, 6 * rawDt);
+  S.cam.y += (me.y - S.cam.y) * Math.min(1, 6 * rawDt);
+
+  // Render + power indicator on ball
   renderWorld();
 
   requestAnimationFrame(trainingLoop);
 }
 
-function doTrainingAction(action) {
-  if (!S.training) return;
-  const me = S.players['trainer'];
-  const b = S.ball;
-  if (action === 'dash') {
-    if (me.dashCd > 0) return;
-    me.dashCd = 2.0;
-    const len = Math.hypot(S.myInput.x, S.myInput.y);
-    if (len > 0.1) {
-      me.vx += (S.myInput.x / len) * 700;
-      me.vy += (S.myInput.y / len) * 700;
-    }
-  } else {
-    const dx = b.x - me.x, dy = b.y - me.y;
-    const d = Math.hypot(dx, dy);
-    const range = (action === 'kick') ? (PLAYER_R + BALL_R + 30) : (PLAYER_R + BALL_R + 40);
-    if (d < range && d > 0.001) {
-      const nx = dx / d, ny = dy / d;
-      const imp = action === 'kick' ? 620 : 420;
-      b.vx += nx * imp; b.vy += ny * imp;
-      S.lastToucher = 'trainer';
-    }
-  }
+function boundRect(o, r, minX, maxX, minY, maxY, bounce) {
+  if (o.x < minX + r) { o.x = minX + r; o.vx = Math.abs(o.vx)*bounce; }
+  if (o.x > maxX - r) { o.x = maxX - r; o.vx = -Math.abs(o.vx)*bounce; }
+  if (o.y < minY + r) { o.y = minY + r; o.vy = Math.abs(o.vy)*bounce; }
+  if (o.y > maxY - r) { o.y = maxY - r; o.vy = -Math.abs(o.vy)*bounce; }
 }
 
-// ==================== NETWORK LOOP ====================
+function doTrainAction(kind, dirX, dirY, power) {
+  const me = S.players['trainer'];
+  if (!me) return;
+  if (kind === 'dash') {
+    if (me.dashCd > 0) return;
+    me.dashCd = 2.5;
+    const len = Math.hypot(S.myInput.x, S.myInput.y);
+    if (len > 0.1) { me.vx += (S.myInput.x/len)*480; me.vy += (S.myInput.y/len)*480; }
+    return;
+  }
+  // Kick/pass
+  let bestB = null, bestD = 9999;
+  for (const b of S.balls) {
+    const dx = b.x - me.x, dy = b.y - me.y;
+    const d = Math.hypot(dx, dy);
+    const range = (kind === 'kick' ? 55 : 65) + PLAYER_R + BALL_R;
+    if (d < range && d < bestD) { bestD = d; bestB = b; }
+  }
+  if (!bestB) return;
+  const maxImp = kind === 'kick' ? 480 : 320;
+  const imp = maxImp * power;
+  let dx = dirX, dy = dirY;
+  if (Math.hypot(dx, dy) < 0.1) {
+    dx = bestB.x - me.x; dy = bestB.y - me.y;
+  }
+  const l = Math.hypot(dx, dy) || 1;
+  bestB.vx += (dx/l) * imp;
+  bestB.vy += (dy/l) * imp;
+  if (kind === 'kick') sfxKick();
+}
+
+// ============ NETWORK LOOP ============
 setInterval(() => {
   if (S.inGame && !S.training) socket.emit('input', S.myInput);
 }, 50);
 
-// Ping measure
-setInterval(() => {
-  if (!S.socket || !S.socket.connected || S.training) return;
-  const start = Date.now();
-  S.socket.emit('ping_measure', null, () => {
-    S.ping = Date.now() - start;
-    const pb = $('pingBox');
-    if (pb) pb.textContent = S.ping + ' ms';
-  });
-}, 3000);
-
-// ==================== RENDER (multiplayer) ====================
+// ============ RENDER ============
 function lerp(a, b, t) { return a + (b - a) * t; }
 
 function renderWorld() {
-  // Camera transform
-  const camX = S.cam.x || 0;
-  const camY = S.cam.y || 0;
-
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, W, H);
 
-  ctx.save();
-  const scale = Math.min(W / 1400, H / 1400) * 1.2;
-  ctx.scale(scale, scale);
-  ctx.translate(W / (2 * scale) - camX, H / (2 * scale) - camY);
+  const arena = ARENAS[S.settings.arena] || ARENAS.classic;
+  const baseScale = Math.min(W / (arena.w + 400), H / (arena.h + 400));
 
-  // Grass arena
+  ctx.save();
+  ctx.scale(baseScale, baseScale);
+  ctx.translate(W/(2*baseScale) - S.cam.x, H/(2*baseScale) - S.cam.y);
+
+  const minX = -arena.w/2, maxX = arena.w/2, minY = -arena.h/2, maxY = arena.h/2;
+
+  // Outer grass
   ctx.fillStyle = '#1a3d1a';
-  ctx.beginPath();
-  ctx.arc(0, 0, ARENA_R + 80, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillRect(minX - 100, minY - 100, arena.w + 200, arena.h + 200);
 
   // Field
-  ctx.fillStyle = '#2a6d2a';
-  ctx.beginPath();
-  ctx.arc(0, 0, ARENA_R, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillStyle = S.settings.arena === 'ice' ? '#cce6f0' : '#2a6d2a';
+  ctx.fillRect(minX, minY, arena.w, arena.h);
 
-  // Stripe pattern (stripes on ground)
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(0, 0, ARENA_R, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  for (let i = -ARENA_R; i < ARENA_R; i += 80) {
-    ctx.fillRect(i, -ARENA_R, 40, ARENA_R * 2);
+  // Stripes
+  if (S.settings.arena !== 'ice') {
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    for (let i = 0; i < arena.w; i += 100) {
+      if ((i / 100) % 2 === 0) ctx.fillRect(minX + i, minY, 100, arena.h);
+    }
   }
-  ctx.restore();
 
   // Center line
   ctx.strokeStyle = 'rgba(255,255,255,.35)';
   ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(0, -ARENA_R); ctx.lineTo(0, ARENA_R); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, minY); ctx.lineTo(0, maxY); ctx.stroke();
 
   // Center circle
   ctx.beginPath();
-  ctx.arc(0, 0, 100, 0, Math.PI * 2);
+  ctx.arc(0, 0, Math.min(arena.w, arena.h) * 0.14, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Arena border
+  // Goals (left=red's, right=blue's)
+  const goalH = arena.h * 0.3;
+  ctx.fillStyle = 'rgba(255,51,102,0.35)';
+  ctx.fillRect(minX - 15, -goalH/2, 15, goalH);
+  ctx.fillStyle = 'rgba(51,170,255,0.35)';
+  ctx.fillRect(maxX, -goalH/2, 15, goalH);
+
+  // Border
   ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.arc(0, 0, ARENA_R, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.lineWidth = 5;
+  ctx.strokeRect(minX, minY, arena.w, arena.h);
 
-  // Goal markers (left = red goal, right = blue goal)
-  ctx.fillStyle = 'rgba(255,51,102,0.3)';
-  ctx.beginPath(); ctx.arc(-ARENA_R, 0, 90, -Math.PI/2, Math.PI/2); ctx.fill();
-  ctx.fillStyle = 'rgba(51,170,255,0.3)';
-  ctx.beginPath(); ctx.arc(ARENA_R, 0, 90, Math.PI/2, -Math.PI/2); ctx.fill();
+  // Obstacles
+  if (S.settings.arena === 'obstacles') {
+    ctx.fillStyle = '#555';
+    const obs = [[-300, -200, 100, 60], [300, 200, 100, 60], [0, 0, 80, 80]];
+    for (const [x, y, w, h] of obs) {
+      ctx.fillRect(x - w/2, y - h/2, w, h);
+    }
+  }
 
-  // Ball
-  drawBall(S.ball.x, S.ball.y);
+  // Balls
+  for (const b of S.balls) drawBall(b.x, b.y);
+
+  // Aim line while charging
+  const me = S.players[S.myId] || S.players['trainer'];
+  if (me && S.powerActive && (S.aimDir.x || S.aimDir.y)) {
+    // Not really using this — power indicator via UI bar
+  }
 
   // Players
   for (const id in S.players) {
@@ -834,39 +1091,48 @@ function renderWorld() {
       p.x = lerp(p.x, p._tx, 0.4);
       p.y = lerp(p.y, p._ty, 0.4);
     }
-    drawPlayer(p, id === S.myId);
+    drawPlayer(p, id === S.myId || id === 'trainer');
+  }
+
+  // Magnet aura
+  for (const id in S.players) {
+    const p = S.players[id];
+    if (p.magnetOn) {
+      ctx.strokeStyle = 'rgba(170,102,255,.6)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 220, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   ctx.restore();
 }
 
 function drawBall(x, y) {
-  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,.4)';
   ctx.beginPath(); ctx.arc(x + 3, y + 3, BALL_R, 0, Math.PI*2); ctx.fill();
-  // Ball
   ctx.fillStyle = '#fff';
   ctx.beginPath(); ctx.arc(x, y, BALL_R, 0, Math.PI*2); ctx.fill();
-  // Pattern
   ctx.fillStyle = '#222';
   ctx.beginPath(); ctx.arc(x, y, BALL_R * 0.35, 0, Math.PI*2); ctx.fill();
-  // Outline
   ctx.strokeStyle = '#111';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(x, y, BALL_R, 0, Math.PI*2); ctx.stroke();
 }
 
 function drawPlayer(p, isMe) {
-  const x = p.x || 0, y = p.y || 0;
-  const r = PLAYER_R;
+  const x = p.x || 0, y = p.y || 0, r = PLAYER_R;
   const color = p.color || '#fff';
+  const teamColor = p.team === 'red' ? '#ff3366' : '#33aaff';
 
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,.4)';
   ctx.beginPath(); ctx.arc(x + 3, y + 3, r, 0, Math.PI*2); ctx.fill();
 
   // Team ring
-  const teamColor = p.team === 'red' ? '#ff3366' : '#33aaff';
   ctx.fillStyle = teamColor;
   ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI*2); ctx.fill();
 
@@ -874,13 +1140,33 @@ function drawPlayer(p, isMe) {
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
 
+  // Skin decoration
+  const skin = p.skin || 'plain';
+  if (skin === 'star') {
+    ctx.fillStyle = 'rgba(255,255,255,.4)';
+    drawStar(x, y, 5, r*0.7, r*0.35);
+  } else if (skin === 'fire') {
+    ctx.fillStyle = 'rgba(255,204,0,.5)';
+    ctx.beginPath(); ctx.arc(x, y, r*0.6, 0, Math.PI*2); ctx.fill();
+  } else if (skin === 'ice') {
+    ctx.strokeStyle = 'rgba(200,240,255,.7)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, r*0.75, 0, Math.PI*2); ctx.stroke();
+  } else if (skin === 'metal') {
+    const grad = ctx.createRadialGradient(x - r*0.4, y - r*0.4, r*0.2, x, y, r);
+    grad.addColorStop(0, 'rgba(255,255,255,.6)');
+    grad.addColorStop(1, 'rgba(0,0,0,.3)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  }
+
   // Highlight
-  ctx.fillStyle = 'rgba(255,255,255,.25)';
+  ctx.fillStyle = 'rgba(255,255,255,.22)';
   ctx.beginPath(); ctx.arc(x - r*0.3, y - r*0.3, r * 0.5, 0, Math.PI*2); ctx.fill();
 
   // Number
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 22px sans-serif';
+  ctx.font = 'bold 20px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.strokeStyle = 'rgba(0,0,0,.8)';
@@ -888,16 +1174,16 @@ function drawPlayer(p, isMe) {
   ctx.strokeText(String(p.number ?? ''), x, y);
   ctx.fillText(String(p.number ?? ''), x, y);
 
-  // Dash cooldown indicator
+  // Dash CD
   if (p.dashCd > 0) {
     ctx.strokeStyle = 'rgba(255,204,0,.9)';
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(x, y, r + 10, -Math.PI/2, -Math.PI/2 + (1 - p.dashCd / 2) * Math.PI * 2);
+    ctx.arc(x, y, r + 10, -Math.PI/2, -Math.PI/2 + (1 - p.dashCd / 2.5) * Math.PI * 2);
     ctx.stroke();
   }
 
-  // Name tag
+  // Name
   ctx.font = 'bold 12px sans-serif';
   ctx.fillStyle = isMe ? '#ffcc00' : '#fff';
   ctx.strokeStyle = 'rgba(0,0,0,.7)';
@@ -908,7 +1194,22 @@ function drawPlayer(p, isMe) {
   ctx.textBaseline = 'middle';
 }
 
-// ==================== MAIN LOOP (multiplayer) ====================
+function drawStar(cx, cy, spikes, outer, inner) {
+  let rot = Math.PI / 2 * 3;
+  const step = Math.PI / spikes;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outer);
+  for (let i = 0; i < spikes; i++) {
+    ctx.lineTo(cx + Math.cos(rot) * outer, cy + Math.sin(rot) * outer);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * inner, cy + Math.sin(rot) * inner);
+    rot += step;
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ============ MAIN LOOP ============
 function loop(now) {
   const dt = Math.min(0.05, (now - S.lastFrame) / 1000);
   S.lastFrame = now;
@@ -916,31 +1217,52 @@ function loop(now) {
   if (S.inGame && !S.training) {
     const me = S.players[S.myId];
     if (me) {
-      // Client-side prediction для плавности
-      me.vx += S.myInput.x * 950 * dt;
-      me.vy += S.myInput.y * 950 * dt;
+      me.vx += S.myInput.x * 700 * dt;
+      me.vy += S.myInput.y * 700 * dt;
       const sp = Math.hypot(me.vx, me.vy);
-      if (sp > 380) { me.vx = me.vx/sp*380; me.vy = me.vy/sp*380; }
+      if (sp > 260) { me.vx = me.vx/sp*260; me.vy = me.vy/sp*260; }
       if (Math.hypot(S.myInput.x, S.myInput.y) < 0.01) {
-        const f = Math.pow(0.985, dt * 60);
+        const f = Math.pow(0.982, dt * 60);
         me.vx *= f; me.vy *= f;
       }
       me.x += me.vx * dt;
       me.y += me.vy * dt;
-
-      // Camera smoothly follows
-      S.cam.x = lerp(S.cam.x, me.x * 0.5, 4 * dt);
-      S.cam.y = lerp(S.cam.y, me.y * 0.5, 4 * dt);
+      S.cam.x = lerp(S.cam.x, me.x, 6 * dt);
+      S.cam.y = lerp(S.cam.y, me.y, 6 * dt);
     }
-  }
-
-  if (S.inGame) {
     renderWorld();
     requestAnimationFrame(loop);
   }
 }
 
+// ============ ACHIEVEMENTS ============
+function checkAchievements() {
+  const a = S.achievements;
+  if (S.totalGoals >= 1 && !a.firstGoal) { a.firstGoal = true; toast('🏆 Первый гол!'); }
+  if (S.totalGoals >= 10 && !a.goals10) { a.goals10 = true; toast('🏆 10 голов!'); }
+  if (S.totalGoals >= 50 && !a.goals50) { a.goals50 = true; toast('🏆 50 голов!'); }
+  if (S.totalWins >= 1 && !a.firstWin) { a.firstWin = true; toast('🏆 Первая победа!'); }
+  if (S.totalWins >= 10 && !a.wins10) { a.wins10 = true; toast('🏆 10 побед!'); }
+  saveStats();
+}
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:20%;left:50%;transform:translateX(-50%);background:rgba(255,204,0,.9);color:#111;padding:12px 20px;border-radius:12px;font-weight:900;z-index:99;font-size:16px;pointer-events:none';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+// ============ AUTO JOIN ============
+if (autoRoom && autoRoom.length === 5) {
+  $('code').value = autoRoom.toUpperCase();
+  setTimeout(() => {
+    toast('Ссылка-приглашение: код ' + autoRoom);
+  }, 500);
+}
+
 })();
 </script>
 </body>
-  </html>
+</html>
