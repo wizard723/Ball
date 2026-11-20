@@ -202,4 +202,745 @@ resize();
 
 // ==================== UI ====================
 const $ = id => document.getElementById(id);
-const
+const menu = $('menu'), lobby = $('lobby'), hud = $('hud');
+const joyBase = $('joyBase'), joyStick = $('joyStick');
+const joyZone = $('joyZone'), actionZone = $('actionZone');
+const btnKick = $('btnKick'), btnPass = $('btnPass'), btnDash = $('btnDash');
+
+function showError(msg) {
+  $('err').textContent = msg;
+  setTimeout(() => { $('err').textContent = ''; }, 4000);
+}
+
+// ==================== COLOR PICKER ====================
+const COLORS = ['#ff3366','#33aaff','#ffcc00','#66ff66','#ff66cc','#ff8800','#aa66ff','#00ffcc'];
+const colorsEl = $('colors');
+COLORS.forEach((c, i) => {
+  const d = document.createElement('div');
+  d.className = 'swatch' + (i === 0 ? ' active' : '');
+  d.style.background = c;
+  d.addEventListener('click', () => {
+    S.color = c;
+    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
+    d.classList.add('active');
+  });
+  colorsEl.appendChild(d);
+});
+
+// ==================== SOCKET ====================
+const socket = io();
+S.socket = socket;
+
+socket.on('connect', () => { S.myId = socket.id; });
+socket.on('disconnect', () => { if (!S.training) showError('Соединение потеряно'); });
+
+socket.on('lobbyUpdate', (d) => {
+  S.players = {};
+  d.players.forEach(p => {
+    if (!S.players[p.id]) S.players[p.id] = {};
+    Object.assign(S.players[p.id], p);
+  });
+  S.isHost = (d.host === S.myId);
+  renderLobbyPlayers();
+});
+
+socket.on('playerJoined', (p) => {
+  if (!S.players[p.id]) S.players[p.id] = {};
+  Object.assign(S.players[p.id], p);
+  renderLobbyPlayers();
+});
+
+socket.on('playerLeft', (id) => {
+  delete S.players[id];
+  renderLobbyPlayers();
+});
+
+socket.on('state', (snap) => {
+  S.ball = snap.ball;
+  for (const id in snap.players) {
+    if (!S.players[id]) S.players[id] = {};
+    const s = snap.players[id];
+    // Target for interpolation
+    S.players[id]._tx = s.x;
+    S.players[id]._ty = s.y;
+    S.players[id]._tvx = s.vx;
+    S.players[id]._tvy = s.vy;
+    S.players[id].dashCd = s.dashCd;
+    if (S.players[id].x === undefined) {
+      S.players[id].x = s.x;
+      S.players[id].y = s.y;
+    }
+  }
+  renderScoreboard();
+});
+
+socket.on('goal', (d) => {
+  S.scores.red = d.red;
+  S.scores.blue = d.blue;
+  updateScoreUI();
+  showGoal('ГОЛ! ' + (d.scorer || ''));
+});
+
+socket.on('matchEnd', (d) => {
+  showResult(d.winner, d.red, d.blue);
+});
+
+socket.on('countdown', () => {
+  startCountdown();
+});
+
+socket.on('gameStarted', (d) => {
+  startGameClient(d.players);
+});
+
+// ==================== MENU BUTTONS ====================
+$('btnCreate').addEventListener('click', () => {
+  S.nick = $('nick').value.trim() || 'Игрок';
+  S.number = parseInt($('numberInput').value) || 0;
+  socket.emit('createRoom', { name: S.nick, color: S.color, number: S.number }, (res) => {
+    if (!res.ok) return showError(res.error || 'Ошибка');
+    S.roomCode = res.code;
+    S.isHost = true;
+    S.players = {};
+    res.players.forEach(p => { S.players[p.id] = { ...p }; });
+    enterLobby();
+  });
+});
+
+$('btnJoin').addEventListener('click', () => {
+  const code = $('code').value.trim().toUpperCase();
+  const name = $('nick').value.trim() || 'Игрок';
+  if (code.length !== 5) return showError('Код из 5 символов');
+  S.nick = name;
+  S.number = parseInt($('numberInput').value) || 0;
+  socket.emit('joinRoom', { code, name, color: S.color, number: S.number }, (res) => {
+    if (!res.ok) return showError(res.error || 'Ошибка');
+    S.roomCode = res.code;
+    S.isHost = (res.host === S.myId);
+    S.players = {};
+    res.players.forEach(p => { S.players[p.id] = { ...p }; });
+    enterLobby();
+  });
+});
+
+$('btnTraining').addEventListener('click', () => {
+  S.training = true;
+  S.nick = $('nick').value.trim() || 'Игрок';
+  S.number = parseInt($('numberInput').value) || 0;
+  startTrainingMode();
+});
+
+function enterLobby() {
+  menu.classList.add('hidden');
+  lobby.classList.remove('hidden');
+  $('roomCodeLbl').textContent = S.roomCode;
+  renderLobbyPlayers();
+}
+
+function renderLobbyPlayers() {
+  const box = $('plBox');
+  box.innerHTML = '';
+  const list = Object.values(S.players);
+  $('plCount').textContent = list.length;
+  const myP = S.players[S.myId];
+  $('myTeam').textContent = myP ? (myP.team === 'red' ? '🔴 Красные' : '🔵 Синие') : '-';
+
+  list.forEach(p => {
+    const d = document.createElement('div');
+    d.className = 'pl-item';
+    const teamLabel = p.team === 'red' ? '🔴' : '🔵';
+    const teamBg = p.team === 'red' ? 'rgba(255,51,102,.3)' : 'rgba(51,170,255,.3)';
+    d.innerHTML = `<div class="pl-dot" style="background:${p.color}"></div>
+      <span>#${p.number} ${escapeHtml(p.name)}${p.id === S.myId ? ' (вы)' : ''}</span>
+      <span class="pl-team" style="background:${teamBg}">${teamLabel}</span>`;
+    box.appendChild(d);
+  });
+
+  if (S.isHost) {
+    $('btnStart').style.display = 'block';
+    $('hostHint').textContent = list.length >= 2 ? 'Нажми «Начать матч»' : 'Нужно минимум 2 игрока';
+    $('btnStart').disabled = list.length < 2;
+    $('btnStart').style.opacity = list.length < 2 ? '.5' : '1';
+  } else {
+    $('btnStart').style.display = 'none';
+    $('hostHint').textContent = 'Ждём хоста...';
+  }
+}
+
+$('btnStart').addEventListener('click', () => {
+  socket.emit('startGame');
+});
+$('btnLeave').addEventListener('click', () => {
+  socket.disconnect();
+  setTimeout(() => location.reload(), 200);
+});
+$('exitBtn').addEventListener('click', () => {
+  if (confirm('Выйти из матча?')) {
+    socket.disconnect();
+    setTimeout(() => location.reload(), 200);
+  }
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// ==================== GAME START ====================
+function startCountdown() {
+  const el = $('countdown');
+  el.classList.add('show');
+  let n = 3;
+  el.textContent = n;
+  const iv = setInterval(() => {
+    n--;
+    if (n > 0) el.textContent = n;
+    else if (n === 0) el.textContent = 'GO!';
+    else { clearInterval(iv); el.classList.remove('show'); }
+  }, 1000);
+}
+
+function startGameClient(players) {
+  lobby.classList.add('hidden');
+  menu.classList.add('hidden');
+  hud.classList.remove('hidden');
+  $('actionZone').classList.remove('hidden');
+  $('joyZone').style.display = 'block';
+  S.inGame = true;
+  S.isHost = S.isHost; // keep
+  S.players = {};
+  players.forEach(p => { S.players[p.id] = { ...p, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0 }; });
+  S.scores = { red: 0, blue: 0 };
+  updateScoreUI();
+  requestAnimationFrame(loop);
+}
+
+function updateScoreUI() {
+  $('redScore').textContent = S.scores.red;
+  $('blueScore').textContent = S.scores.blue;
+}
+
+let goalTimer = null;
+function showGoal(text) {
+  const el = $('goalMsg');
+  el.textContent = text;
+  el.classList.add('show');
+  if (goalTimer) clearTimeout(goalTimer);
+  goalTimer = setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+function showResult(winner, red, blue) {
+  $('resultTitle').textContent = winner === 'red' ? '🔴 Победа красных!' : '🔵 Победа синих!';
+  $('resultTitle').textContent = 'Матч окончен';
+  $('resRed').textContent = red;
+  $('resBlue').textContent = blue;
+  $('result').classList.add('show');
+  S.inGame = false;
+}
+
+$('btnRematch').addEventListener('click', () => {
+  $('result').classList.remove('show');
+  if (S.training) {
+    S.training = false;
+    startTrainingMode();
+  } else {
+    socket.emit('rematch');
+  }
+});
+$('btnToMenu').addEventListener('click', () => {
+  socket.disconnect();
+  setTimeout(() => location.reload(), 200);
+});
+
+// ==================== JOYSTICK ====================
+let joyActive = false;
+let joyId = null;
+let joyStart = { x: 0, y: 0 };
+const JOY_RADIUS = 75;
+const JOY_DEAD = 8;
+
+function joyStartHandler(clientX, clientY, touchId) {
+  joyActive = true;
+  joyId = touchId;
+  joyStart.x = clientX;
+  joyStart.y = clientY;
+  joyBase.style.display = 'block';
+  joyStick.style.display = 'block';
+  joyBase.style.left = clientX + 'px';
+  joyBase.style.top = clientY + 'px';
+  joyStick.style.left = clientX + 'px';
+  joyStick.style.top = clientY + 'px';
+}
+
+function joyMoveHandler(clientX, clientY) {
+  if (!joyActive) return;
+  let dx = clientX - joyStart.x;
+  let dy = clientY - joyStart.y;
+  const len = Math.hypot(dx, dy);
+  const maxL = JOY_RADIUS - 15;
+  if (len > maxL) { dx = (dx/len)*maxL; dy = (dy/len)*maxL; }
+  joyStick.style.left = (joyStart.x + dx) + 'px';
+  joyStick.style.top = (joyStart.y + dy) + 'px';
+  const dead = JOY_DEAD;
+  if (Math.hypot(dx, dy) < dead) {
+    S.myInput.x = 0; S.myInput.y = 0;
+  } else {
+    S.myInput.x = dx / maxL;
+    S.myInput.y = dy / maxL;
+  }
+}
+
+function joyEndHandler() {
+  joyActive = false;
+  joyId = null;
+  joyBase.style.display = 'none';
+  joyStick.style.display = 'none';
+  S.myInput.x = 0;
+  S.myInput.y = 0;
+}
+
+joyZone.addEventListener('touchstart', (e) => {
+  if (!S.inGame) return;
+  e.preventDefault();
+  if (joyActive) return;
+  const t = e.changedTouches[0];
+  joyStartHandler(t.clientX, t.clientY, t.identifier);
+}, { passive: false });
+
+joyZone.addEventListener('touchmove', (e) => {
+  if (!joyActive) return;
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyId) joyMoveHandler(t.clientX, t.clientY);
+  }
+}, { passive: false });
+
+joyZone.addEventListener('touchend', (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyId) joyEndHandler();
+  }
+}, { passive: false });
+
+joyZone.addEventListener('touchcancel', joyEndHandler, { passive: false });
+
+// Mouse fallback for desktop testing
+let mouseJoyActive = false;
+joyZone.addEventListener('mousedown', (e) => {
+  if (!S.inGame) return;
+  mouseJoyActive = true;
+  joyStartHandler(e.clientX, e.clientY, 'mouse');
+});
+addEventListener('mousemove', (e) => {
+  if (!mouseJoyActive) return;
+  joyMoveHandler(e.clientX, e.clientY);
+});
+addEventListener('mouseup', () => {
+  if (!mouseJoyActive) return;
+  mouseJoyActive = false;
+  joyEndHandler();
+});
+
+// ==================== ACTION BUTTONS ====================
+function bindAction(btn, action) {
+  function on(e) {
+    e.preventDefault();
+    btn.classList.add('on');
+    if (S.training) {
+      doTrainingAction(action);
+    } else {
+      socket.emit('action', action);
+    }
+  }
+  function off(e) {
+    e.preventDefault();
+    btn.classList.remove('on');
+  }
+  btn.addEventListener('touchstart', on, { passive: false });
+  btn.addEventListener('touchend', off, { passive: false });
+  btn.addEventListener('touchcancel', off, { passive: false });
+  btn.addEventListener('mousedown', on);
+  btn.addEventListener('mouseup', off);
+  btn.addEventListener('mouseleave', off);
+}
+
+bindAction(btnKick, 'kick');
+bindAction(btnPass, 'pass');
+bindAction(btnDash, 'dash');
+
+// ==================== TRAINING MODE ====================
+function startTrainingMode() {
+  menu.classList.add('hidden');
+  lobby.classList.add('hidden');
+  hud.classList.remove('hidden');
+  $('actionZone').classList.remove('hidden');
+  $('joyZone').style.display = 'block';
+  S.inGame = true;
+  S.training = true;
+
+  // Мой игрок
+  S.myId = 'trainer';
+  S.players = {};
+  S.players['trainer'] = {
+    x: -320, y: 0, vx: 0, vy: 0,
+    name: S.nick, color: S.color, team: 'red', number: S.number, dashCd: 0
+  };
+  // Бот-синий
+  S.players['bot'] = {
+    x: 320, y: 0, vx: 0, vy: 0,
+    name: 'Бот', color: '#33aaff', team: 'blue', number: 99, dashCd: 0
+  };
+  S.ball = { x: 0, y: 0, vx: 0, vy: 0 };
+  S.scores = { red: 0, blue: 0 };
+  updateScoreUI();
+
+  requestAnimationFrame(trainingLoop);
+}
+
+let trainBotTimer = 0;
+function trainingLoop(now) {
+  if (!S.training) return;
+  const dt = Math.min(0.05, (now - S.lastFrame) / 1000);
+  S.lastFrame = now;
+
+  const me = S.players['trainer'];
+  const bot = S.players['bot'];
+  const b = S.ball;
+
+  // --- Bot AI ---
+  trainBotTimer -= dt;
+  if (trainBotTimer <= 0) {
+    trainBotTimer = 0.5;
+    // Движемся к мячу или защищаем ворота
+    let tx, ty;
+    const dist = Math.hypot(b.x - bot.x, b.y - bot.y);
+    if (dist < 300) { tx = b.x; ty = b.y; }
+    else { tx = 150; ty = b.y * 0.5; }
+    const dx = tx - bot.x, dy = ty - bot.y;
+    const dl = Math.hypot(dx, dy) || 1;
+    bot._ix = dx / dl;
+    bot._iy = dy / dl;
+  }
+  const accel = 950;
+  bot.vx += (bot._ix || 0) * accel * dt;
+  bot.vy += (bot._iy || 0) * accel * dt;
+  const bsp = Math.hypot(bot.vx, bot.vy);
+  if (bsp > 380) { bot.vx = bot.vx / bsp * 380; bot.vy = bot.vy / bsp * 380; }
+  const fr = Math.pow(0.985, dt * 60);
+  bot.vx *= fr; bot.vy *= fr;
+  bot.x += bot.vx * dt;
+  bot.y += bot.vy * dt;
+
+  // --- Me ---
+  me.vx += S.myInput.x * accel * dt;
+  me.vy += S.myInput.y * accel * dt;
+  const msp = Math.hypot(me.vx, me.vy);
+  if (msp > 380) { me.vx = me.vx / msp * 380; me.vy = me.vy / msp * 380; }
+  if (Math.hypot(S.myInput.x, S.myInput.y) < 0.01) { me.vx *= fr; me.vy *= fr; }
+  me.x += me.vx * dt;
+  me.y += me.vy * dt;
+  if (me.dashCd > 0) me.dashCd -= dt;
+  if (bot.dashCd > 0) bot.dashCd -= dt;
+
+  // --- Ball ---
+  const bf = Math.pow(0.99, dt * 60);
+  b.vx *= bf; b.vy *= bf;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+
+  // --- Player-ball collisions ---
+  [me, bot].forEach(p => {
+    const dx = b.x - p.x, dy = b.y - p.y;
+    const d = Math.hypot(dx, dy);
+    const minD = p.r || PLAYER_R + BALL_R;
+    const md = PLAYER_R + BALL_R;
+    if (d < md && d > 0.001) {
+      const nx = dx / d, ny = dy / d;
+      const ov = md - d;
+      b.x += nx * ov; b.y += ny * ov;
+      p.x -= nx * ov * 0.3; p.y -= ny * ov * 0.3;
+      const pSp = Math.hypot(p.vx, p.vy);
+      const kick = Math.max(180, pSp * 1.2);
+      b.vx += nx * kick; b.vy += ny * kick;
+      const bSp = Math.hypot(b.vx, b.vy);
+      if (bSp > 950) { b.vx = b.vx/bSp*950; b.vy = b.vy/bSp*950; }
+      S.lastToucher = p === me ? 'trainer' : 'bot';
+    }
+  });
+
+  // --- Player-player ---
+  {
+    const a = me, c = bot;
+    const dx = c.x - a.x, dy = c.y - a.y;
+    const d = Math.hypot(dx, dy);
+    const md = PLAYER_R * 2;
+    if (d < md && d > 0.001) {
+      const nx = dx / d, ny = dy / d;
+      const ov = md - d;
+      a.x -= nx * ov * 0.5; a.y -= ny * ov * 0.5;
+      c.x += nx * ov * 0.5; c.y += ny * ov * 0.5;
+    }
+  }
+
+  // --- Bounds ---
+  [me, bot, b].forEach(o => {
+    const r = o === b ? BALL_R : PLAYER_R;
+    const dist = Math.hypot(o.x, o.y);
+    const maxD = ARENA_R - r;
+    if (dist > maxD) {
+      const nx = o.x / dist, ny = o.y / dist;
+      o.x = nx * maxD; o.y = ny * maxD;
+      const vn = o.vx * nx + o.vy * ny;
+      if (vn > 0) { o.vx -= 1.72 * vn * nx; o.vy -= 1.72 * vn * ny; }
+    }
+  });
+
+  // --- Goal ---
+  const bd = Math.hypot(b.x, b.y);
+  if (bd > ARENA_R + BALL_R) {
+    const scorer = S.lastToucher;
+    const team = scorer === 'trainer' ? 'red' : 'blue';
+    S.scores[team]++;
+    updateScoreUI();
+    showGoal('ГОЛ!');
+    if (S.scores[team] >= MAX_GOALS) {
+      showResult(team, S.scores.red, S.scores.blue);
+      S.training = false;
+      return;
+    }
+    // reset
+    b.x = 0; b.y = 0; b.vx = 0; b.vy = 0;
+    me.x = -320; me.y = 0; me.vx = 0; me.vy = 0;
+    bot.x = 320; bot.y = 0; bot.vx = 0; bot.vy = 0;
+    S.lastToucher = null;
+  }
+
+  // --- Render ---
+  S.cam.x += (me.x - S.cam.x) * Math.min(1, 6 * dt);
+  S.cam.y += (me.y - S.cam.y) * Math.min(1, 6 * dt);
+  renderWorld();
+
+  requestAnimationFrame(trainingLoop);
+}
+
+function doTrainingAction(action) {
+  if (!S.training) return;
+  const me = S.players['trainer'];
+  const b = S.ball;
+  if (action === 'dash') {
+    if (me.dashCd > 0) return;
+    me.dashCd = 2.0;
+    const len = Math.hypot(S.myInput.x, S.myInput.y);
+    if (len > 0.1) {
+      me.vx += (S.myInput.x / len) * 700;
+      me.vy += (S.myInput.y / len) * 700;
+    }
+  } else {
+    const dx = b.x - me.x, dy = b.y - me.y;
+    const d = Math.hypot(dx, dy);
+    const range = (action === 'kick') ? (PLAYER_R + BALL_R + 30) : (PLAYER_R + BALL_R + 40);
+    if (d < range && d > 0.001) {
+      const nx = dx / d, ny = dy / d;
+      const imp = action === 'kick' ? 620 : 420;
+      b.vx += nx * imp; b.vy += ny * imp;
+      S.lastToucher = 'trainer';
+    }
+  }
+}
+
+// ==================== NETWORK LOOP ====================
+setInterval(() => {
+  if (S.inGame && !S.training) socket.emit('input', S.myInput);
+}, 50);
+
+// Ping measure
+setInterval(() => {
+  if (!S.socket || !S.socket.connected || S.training) return;
+  const start = Date.now();
+  S.socket.emit('ping_measure', null, () => {
+    S.ping = Date.now() - start;
+    const pb = $('pingBox');
+    if (pb) pb.textContent = S.ping + ' ms';
+  });
+}, 3000);
+
+// ==================== RENDER (multiplayer) ====================
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function renderWorld() {
+  // Camera transform
+  const camX = S.cam.x || 0;
+  const camY = S.cam.y || 0;
+
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  const scale = Math.min(W / 1400, H / 1400) * 1.2;
+  ctx.scale(scale, scale);
+  ctx.translate(W / (2 * scale) - camX, H / (2 * scale) - camY);
+
+  // Grass arena
+  ctx.fillStyle = '#1a3d1a';
+  ctx.beginPath();
+  ctx.arc(0, 0, ARENA_R + 80, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Field
+  ctx.fillStyle = '#2a6d2a';
+  ctx.beginPath();
+  ctx.arc(0, 0, ARENA_R, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Stripe pattern (stripes on ground)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, ARENA_R, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  for (let i = -ARENA_R; i < ARENA_R; i += 80) {
+    ctx.fillRect(i, -ARENA_R, 40, ARENA_R * 2);
+  }
+  ctx.restore();
+
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,.35)';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(0, -ARENA_R); ctx.lineTo(0, ARENA_R); ctx.stroke();
+
+  // Center circle
+  ctx.beginPath();
+  ctx.arc(0, 0, 100, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Arena border
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(0, 0, ARENA_R, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Goal markers (left = red goal, right = blue goal)
+  ctx.fillStyle = 'rgba(255,51,102,0.3)';
+  ctx.beginPath(); ctx.arc(-ARENA_R, 0, 90, -Math.PI/2, Math.PI/2); ctx.fill();
+  ctx.fillStyle = 'rgba(51,170,255,0.3)';
+  ctx.beginPath(); ctx.arc(ARENA_R, 0, 90, Math.PI/2, -Math.PI/2); ctx.fill();
+
+  // Ball
+  drawBall(S.ball.x, S.ball.y);
+
+  // Players
+  for (const id in S.players) {
+    const p = S.players[id];
+    if (p._tx !== undefined) {
+      p.x = lerp(p.x, p._tx, 0.4);
+      p.y = lerp(p.y, p._ty, 0.4);
+    }
+    drawPlayer(p, id === S.myId);
+  }
+
+  ctx.restore();
+}
+
+function drawBall(x, y) {
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,.4)';
+  ctx.beginPath(); ctx.arc(x + 3, y + 3, BALL_R, 0, Math.PI*2); ctx.fill();
+  // Ball
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(x, y, BALL_R, 0, Math.PI*2); ctx.fill();
+  // Pattern
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(x, y, BALL_R * 0.35, 0, Math.PI*2); ctx.fill();
+  // Outline
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, BALL_R, 0, Math.PI*2); ctx.stroke();
+}
+
+function drawPlayer(p, isMe) {
+  const x = p.x || 0, y = p.y || 0;
+  const r = PLAYER_R;
+  const color = p.color || '#fff';
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,.4)';
+  ctx.beginPath(); ctx.arc(x + 3, y + 3, r, 0, Math.PI*2); ctx.fill();
+
+  // Team ring
+  const teamColor = p.team === 'red' ? '#ff3366' : '#33aaff';
+  ctx.fillStyle = teamColor;
+  ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI*2); ctx.fill();
+
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+
+  // Highlight
+  ctx.fillStyle = 'rgba(255,255,255,.25)';
+  ctx.beginPath(); ctx.arc(x - r*0.3, y - r*0.3, r * 0.5, 0, Math.PI*2); ctx.fill();
+
+  // Number
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = 'rgba(0,0,0,.8)';
+  ctx.lineWidth = 3;
+  ctx.strokeText(String(p.number ?? ''), x, y);
+  ctx.fillText(String(p.number ?? ''), x, y);
+
+  // Dash cooldown indicator
+  if (p.dashCd > 0) {
+    ctx.strokeStyle = 'rgba(255,204,0,.9)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(x, y, r + 10, -Math.PI/2, -Math.PI/2 + (1 - p.dashCd / 2) * Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Name tag
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillStyle = isMe ? '#ffcc00' : '#fff';
+  ctx.strokeStyle = 'rgba(0,0,0,.7)';
+  ctx.lineWidth = 3;
+  ctx.textBaseline = 'bottom';
+  ctx.strokeText(p.name || '', x, y - r - 10);
+  ctx.fillText(p.name || '', x, y - r - 10);
+  ctx.textBaseline = 'middle';
+}
+
+// ==================== MAIN LOOP (multiplayer) ====================
+function loop(now) {
+  const dt = Math.min(0.05, (now - S.lastFrame) / 1000);
+  S.lastFrame = now;
+
+  if (S.inGame && !S.training) {
+    const me = S.players[S.myId];
+    if (me) {
+      // Client-side prediction для плавности
+      me.vx += S.myInput.x * 950 * dt;
+      me.vy += S.myInput.y * 950 * dt;
+      const sp = Math.hypot(me.vx, me.vy);
+      if (sp > 380) { me.vx = me.vx/sp*380; me.vy = me.vy/sp*380; }
+      if (Math.hypot(S.myInput.x, S.myInput.y) < 0.01) {
+        const f = Math.pow(0.985, dt * 60);
+        me.vx *= f; me.vy *= f;
+      }
+      me.x += me.vx * dt;
+      me.y += me.vy * dt;
+
+      // Camera smoothly follows
+      S.cam.x = lerp(S.cam.x, me.x * 0.5, 4 * dt);
+      S.cam.y = lerp(S.cam.y, me.y * 0.5, 4 * dt);
+    }
+  }
+
+  if (S.inGame) {
+    renderWorld();
+    requestAnimationFrame(loop);
+  }
+}
+
+})();
+</script>
+</body>
+  </html>
