@@ -12,57 +12,112 @@
 html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#fff;font-family:-apple-system,Roboto,sans-serif;position:fixed;overscroll-behavior:none}
 canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .hidden{display:none!important}
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;background:radial-gradient(circle at 50% 20%,#1a1a2e 0%,#0a0a0f 70%);z-index:10;overflow-y:auto}
-.title{font-size:38px;font-weight:900;letter-spacing:2px;margin-bottom:20px;text-align:center}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:20px;background:radial-gradient(circle at 50% 20%,#1a1a2e 0%,#0a0a0f 70%);z-index:10;overflow-y:auto}
+.title{font-size:36px;font-weight:900;letter-spacing:2px;margin-bottom:16px;text-align:center;line-height:1}
 .title span{color:#ff3366;text-shadow:0 0 20px rgba(255,51,102,.6)}
-.lbl{width:100%;max-width:340px;font-size:12px;color:#888;margin:12px 0 6px;text-transform:uppercase;letter-spacing:1px}
-.inp{width:100%;max-width:340px;padding:14px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:16px;outline:none;-webkit-user-select:text;user-select:text}
+.lbl{width:100%;max-width:340px;font-size:12px;color:#888;margin:10px 0 6px;text-transform:uppercase;letter-spacing:1px}
+.inp{width:100%;max-width:340px;padding:12px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:16px;outline:none;-webkit-user-select:text;user-select:text}
 .inp:focus{border-color:#ff3366}
 .inp.code{text-transform:uppercase;letter-spacing:4px;text-align:center;font-weight:bold}
-.colors{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:340px}
-.swatch{width:40px;height:40px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
+.row{display:flex;gap:8px;max-width:340px;width:100%;align-items:center}
+.colors{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:340px;margin-top:4px}
+.swatch{width:38px;height:38px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
 .swatch.active{border-color:#fff;transform:scale(1.15)}
-.btn{width:100%;max-width:340px;padding:16px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;transition:transform .1s;margin-top:14px}
+.btn{width:100%;max-width:340px;padding:14px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;transition:transform .1s;margin-top:12px}
 .btn:active{transform:scale(.97)}
 .btn.primary{background:linear-gradient(135deg,#ff3366,#ff6633);color:#fff;box-shadow:0 4px 20px rgba(255,51,102,.4)}
 .btn.green{background:linear-gradient(135deg,#34c759,#28a745);color:#fff;box-shadow:0 4px 20px rgba(52,199,89,.4)}
+.btn.gray{background:rgba(255,255,255,.12);color:#fff}
 .btn.danger{background:rgba(255,60,60,.25);color:#ff6666}
-.err{color:#ff5566;margin-top:12px;font-size:14px;min-height:18px;text-align:center}
-.roomcode{font-size:38px;font-weight:900;letter-spacing:8px;color:#ff3366;margin:10px 0}
-.hint{color:#888;font-size:13px;text-align:center;margin:6px 0}
+.err{color:#ff5566;margin-top:10px;font-size:14px;min-height:18px;text-align:center}
+.roomcode{font-size:36px;font-weight:900;letter-spacing:8px;color:#ff3366;margin:8px 0}
+.hint{color:#888;font-size:13px;text-align:center;margin:4px 0}
 .players-box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:8px;margin:14px 0}
 .pl-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,255,255,.06);border-radius:10px;font-size:14px}
 .pl-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
+.pl-team{font-size:11px;padding:2px 8px;border-radius:6px;margin-left:auto}
+
+/* HUD */
 #hud{position:absolute;inset:0;pointer-events:none;z-index:5}
-.hud-top{position:absolute;top:0;left:0;right:0;padding:12px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;gap:8px}
-.scoreboard{background:rgba(0,0,0,.6);padding:8px 14px;border-radius:12px;font-size:13px;display:flex;flex-direction:column;gap:4px;min-width:140px}
-.sb-row{display:flex;justify-content:space-between;gap:8px}
-.sb-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.hud-top{position:absolute;top:0;left:0;right:0;padding:10px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.scorebox{background:rgba(0,0,0,.65);padding:8px 14px;border-radius:12px;font-weight:700;font-size:18px;display:flex;gap:8px;align-items:center}
+.scorebox .red{color:#ff3366}
+.scorebox .blue{color:#33aaff}
+.pingbox{background:rgba(0,0,0,.6);padding:6px 10px;border-radius:10px;font-size:11px;opacity:.8}
 .exit{pointer-events:auto;width:40px;height:40px;border-radius:50%;background:rgba(255,60,60,.3);border:1px solid rgba(255,60,60,.6);color:#ff6666;font-size:18px;font-weight:700;flex-shrink:0}
-#goalMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:64px;font-weight:900;color:#ffcc00;text-shadow:0 0 40px rgba(255,204,0,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center}
+
+#goalMsg{position:absolute;top:35%;left:50%;transform:translate(-50%,-50%);font-size:56px;font-weight:900;color:#ffcc00;text-shadow:0 0 40px rgba(255,204,0,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center;z-index:7}
 #goalMsg.show{opacity:1}
-#joy{position:absolute;inset:0;z-index:6}
-.joy-base{position:absolute;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);pointer-events:none;display:none}
-.joy-stick{position:absolute;width:60px;height:60px;border-radius:50%;background:rgba(255,51,102,.7);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%)}
+
+#countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:120px;font-weight:900;color:#ff3366;text-shadow:0 0 60px rgba(255,51,102,.9);z-index:8;pointer-events:none}
+#countdown.show{display:flex}
+
+/* JOYSTICK (left) */
+#joyZone{position:absolute;left:0;bottom:0;width:50%;height:60%;z-index:6;touch-action:none}
+.joy-base{position:absolute;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);pointer-events:none;display:none;transform:translate(-50%,-50%)}
+.joy-stick{position:absolute;width:65px;height:65px;border-radius:50%;background:rgba(255,51,102,.75);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,51,102,.6)}
+
+/* ACTION BUTTONS (right) */
+#actionZone{position:absolute;right:0;bottom:0;width:50%;height:60%;z-index:6;touch-action:none;pointer-events:none}
+.act-btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid rgba(255,255,255,.4);color:#fff;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none;transition:transform .08s, background .08s}
+.act-btn:active,.act-btn.on{transform:scale(.9)}
+.act-btn .lbl2{font-size:11px;opacity:.85;font-weight:600;margin-top:2px}
+#btnKick{width:80px;height:80px;right:24px;bottom:24px;background:rgba(255,51,102,.55);font-size:24px}
+#btnPass{width:64px;height:64px;right:120px;bottom:36px;background:rgba(51,170,255,.55);font-size:18px}
+#btnDash{width:64px;height:64px;right:36px;bottom:120px;background:rgba(255,204,0,.55);color:#222;font-size:18px}
+#btnKick.on{background:rgba(255,51,102,.95)}
+#btnPass.on{background:rgba(51,170,255,.95)}
+#btnDash.on{background:rgba(255,204,0,.95)}
+.act-btn.cd{opacity:.35}
+
+/* RESULT */
+#result{position:absolute;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:9;padding:20px}
+#result.show{display:flex}
+.result-box{background:rgba(20,20,30,.98);border-radius:20px;padding:28px;max-width:340px;width:100%;text-align:center;display:flex;flex-direction:column;gap:12px;border:2px solid rgba(255,255,255,.1)}
+.result-box h2{font-size:28px}
+.result-score{font-size:42px;font-weight:900;margin:10px 0}
+
+/* TEAM SELECT TOGGLE */
+.team-info{font-size:12px;color:#888;text-align:center;margin-top:6px}
 </style>
 </head>
 <body>
 
 <canvas id="c"></canvas>
 
+<!-- HUD -->
 <div id="hud" class="hidden">
   <div class="hud-top">
-    <div class="scoreboard" id="scoreboard"></div>
+    <div class="scorebox"><span class="red" id="redScore">0</span> : <span class="blue" id="blueScore">0</span></div>
+    <div class="pingbox" id="pingBox">-- ms</div>
     <button class="exit" id="exitBtn">✕</button>
   </div>
 </div>
 
-<div id="joy">
+<div id="goalMsg"></div>
+<div id="countdown"></div>
+
+<!-- Controls -->
+<div id="joyZone">
   <div class="joy-base" id="joyBase"></div>
   <div class="joy-stick" id="joyStick"></div>
 </div>
 
-<div id="goalMsg"></div>
+<div id="actionZone">
+  <button class="act-btn" id="btnKick">⚽<span class="lbl2">Удар</span></button>
+  <button class="act-btn" id="btnPass">➤<span class="lbl2">Пас</span></button>
+  <button class="act-btn" id="btnDash">⚡<span class="lbl2">Рывок</span></button>
+</div>
+
+<!-- RESULT OVERLAY -->
+<div id="result">
+  <div class="result-box">
+    <h2 id="resultTitle">Победа!</h2>
+    <div class="result-score"><span class="red" id="resRed">0</span> : <span class="blue" id="resBlue">0</span></div>
+    <button class="btn primary" id="btnRematch">Реванш</button>
+    <button class="btn danger" id="btnToMenu">В меню</button>
+  </div>
+</div>
 
 <!-- MENU -->
 <div id="menu" class="screen">
@@ -71,10 +126,17 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
   <input id="nick" class="inp" maxlength="14" value="Игрок1">
   <div class="lbl">Цвет</div>
   <div id="colors" class="colors"></div>
+  <div class="lbl">Номер на круге (0–99)</div>
+  <input id="numberInput" class="inp" type="number" min="0" max="99" value="7">
+  
   <button id="btnCreate" class="btn primary">Создать комнату</button>
+  
   <div class="lbl">Код комнаты</div>
   <input id="code" class="inp code" maxlength="5" placeholder="XXXXX" autocapitalize="characters">
   <button id="btnJoin" class="btn green">Подключиться</button>
+  
+  <button id="btnTraining" class="btn gray">🎯 Тренировка (соло)</button>
+  
   <div id="err" class="err"></div>
 </div>
 
@@ -83,9 +145,10 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
   <div class="title" style="font-size:24px">Лобби</div>
   <div class="hint">Код комнаты:</div>
   <div class="roomcode" id="roomCodeLbl">-----</div>
-  <div class="hint">Игроков: <b id="plCount">1</b>/6</div>
+  <div class="hint">Игроков: <b id="plCount">1</b>/4 • Команда: <b id="myTeam">-</b></div>
   <div class="players-box" id="plBox"></div>
   <button id="btnStart" class="btn primary">Начать матч</button>
+  <div class="hint" id="hostHint"></div>
   <button id="btnLeave" class="btn danger">Выйти</button>
 </div>
 
@@ -94,25 +157,35 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 (() => {
 'use strict';
 
-const ARENA = { radius: 500 };
-const PLAYER_RADIUS = 30;
-const BALL_RADIUS = 22;
+// ==================== CONSTANTS ====================
+const ARENA_R = 520;
+const PLAYER_R = 32;
+const BALL_R = 22;
+const MAX_GOALS = 5;
+const TEAM_COLORS = { red: '#ff3366', blue: '#33aaff' };
 
-const state = {
+// ==================== STATE ====================
+const S = {
   socket: null,
   myId: null,
   roomCode: null,
   inGame: false,
-  players: {},
+  training: false,
+  isHost: false,
+  players: {},       // id -> { x, y, vx, vy, name, color, team, number, dashCd }
   ball: { x: 0, y: 0, vx: 0, vy: 0 },
   myInput: { x: 0, y: 0 },
   color: '#ff3366',
   nick: 'Игрок1',
-  scores: {},
+  number: 7,
+  scores: { red: 0, blue: 0 },
   cam: { x: 0, y: 0 },
-  lastFrame: performance.now()
+  lastFrame: performance.now(),
+  ping: 0,
+  lastInputSent: 0
 };
 
+// ==================== CANVAS ====================
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let W, H, DPR;
@@ -127,244 +200,6 @@ addEventListener('resize', resize);
 addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
+// ==================== UI ====================
 const $ = id => document.getElementById(id);
-const menu = $('menu'), lobby = $('lobby'), hud = $('hud');
-
-// ============ COLORS ============
-const COLORS = ['#ff3366','#33ccff','#ffcc00','#66ff66','#ff66cc','#ff8800','#aa66ff','#00ffcc'];
-const colorsEl = $('colors');
-COLORS.forEach((c, i) => {
-  const d = document.createElement('div');
-  d.className = 'swatch' + (i === 0 ? ' active' : '');
-  d.style.background = c;
-  d.onclick = () => {
-    state.color = c;
-    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
-    d.classList.add('active');
-  };
-  colorsEl.appendChild(d);
-});
-
-// ============ SOCKET ============
-const socket = io();
-state.socket = socket;
-
-socket.on('connect', () => { state.myId = socket.id; });
-socket.on('disconnect', () => { showError('Соединение потеряно'); });
-
-socket.on('playerJoined', (p) => {
-  state.players[p.id] = p;
-  renderLobbyPlayers();
-});
-socket.on('playerLeft', (id) => {
-  delete state.players[id];
-  delete state.scores[id];
-  renderLobbyPlayers();
-});
-socket.on('state', (snap) => {
-  state.ball = snap.ball;
-  for (const id in snap.players) {
-    state.players[id] = { ...state.players[id], ...snap.players[id] };
-    state.scores[id] = snap.players[id].score;
-  }
-  renderScoreboard();
-});
-socket.on('goal', (data) => {
-  showGoal(data.name || 'Гол!');
-});
-socket.on('gameStarted', () => {
-  startGameClient();
-});
-
-// ============ MENU ============
-function showError(msg) {
-  $('err').textContent = msg;
-  setTimeout(() => { $('err').textContent = ''; }, 4000);
-}
-$('btnCreate').onclick = () => {
-  const name = $('nick').value.trim() || 'Игрок';
-  state.nick = name;
-  socket.emit('createRoom', { name, color: state.color }, (res) => {
-    if (!res.ok) return showError(res.error || 'Ошибка');
-    state.roomCode = res.code;
-    state.players = {};
-    res.players.forEach(p => state.players[p.id] = p);
-    enterLobby();
-  });
-};
-$('btnJoin').onclick = () => {
-  const code = $('code').value.trim().toUpperCase();
-  const name = $('nick').value.trim() || 'Игрок';
-  if (code.length !== 5) return showError('Код из 5 символов');
-  state.nick = name;
-  socket.emit('joinRoom', { code, name, color: state.color }, (res) => {
-    if (!res.ok) return showError(res.error || 'Ошибка');
-    state.roomCode = res.code;
-    state.players = {};
-    res.players.forEach(p => state.players[p.id] = p);
-    enterLobby();
-  });
-};
-
-function enterLobby() {
-  menu.classList.add('hidden');
-  lobby.classList.remove('hidden');
-  $('roomCodeLbl').textContent = state.roomCode;
-  renderLobbyPlayers();
-}
-function renderLobbyPlayers() {
-  const box = $('plBox');
-  box.innerHTML = '';
-  const list = Object.values(state.players);
-  $('plCount').textContent = list.length;
-  list.forEach(p => {
-    const d = document.createElement('div');
-    d.className = 'pl-item';
-    d.innerHTML = `<div class="pl-dot" style="background:${p.color}"></div>
-      <span>${escapeHtml(p.name)}${p.id === state.myId ? ' (вы)' : ''}</span>`;
-    box.appendChild(d);
-  });
-}
-
-$('btnStart').onclick = () => socket.emit('startGame');
-$('btnLeave').onclick = () => { socket.disconnect(); setTimeout(() => location.reload(), 200); };
-$('exitBtn').onclick = () => {
-  if (confirm('Выйти из матча?')) { socket.disconnect(); setTimeout(() => location.reload(), 200); }
-};
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-}
-
-// ============ GAME START ============
-function startGameClient() {
-  lobby.classList.add('hidden');
-  hud.classList.remove('hidden');
-  state.inGame = true;
-  state.cam.x = 0; state.cam.y = 0;
-  requestAnimationFrame(loop);
-}
-
-function renderScoreboard() {
-  const sb = $('scoreboard');
-  const all = [];
-  for (const id in state.players) {
-    const p = state.players[id];
-    all.push({
-      id, name: p.name || 'Игрок', color: p.color || '#888',
-      score: state.scores[id] || 0, me: id === state.myId
-    });
-  }
-  all.sort((a, b) => b.score - a.score);
-  sb.innerHTML = all.map(p =>
-    `<div class="sb-row"><span><span class="sb-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}${p.me?' (вы)':''}</span><span><b>${p.score}</b></span></div>`
-  ).join('');
-}
-
-let goalTimer = null;
-function showGoal(name) {
-  const el = $('goalMsg');
-  el.textContent = 'ГОЛ! ' + name;
-  el.classList.add('show');
-  if (goalTimer) clearTimeout(goalTimer);
-  goalTimer = setTimeout(() => el.classList.remove('show'), 1500);
-}
-
-// ============ JOYSTICK ============
-const joyBase = $('joyBase');
-const joyStick = $('joyStick');
-let joyActive = false;
-let joyId = null;
-let joyStart = { x: 0, y: 0 };
-const JOY_RADIUS = 70;
-
-function onTouchStart(e) {
-  if (!state.inGame) return;
-  for (const t of e.changedTouches) {
-    if (joyActive) continue;
-    joyActive = true;
-    joyId = t.identifier;
-    joyStart.x = t.clientX;
-    joyStart.y = t.clientY;
-    joyBase.style.display = 'block';
-    joyStick.style.display = 'block';
-    joyBase.style.left = (t.clientX - JOY_RADIUS) + 'px';
-    joyBase.style.top = (t.clientY - JOY_RADIUS) + 'px';
-    joyStick.style.left = t.clientX + 'px';
-    joyStick.style.top = t.clientY + 'px';
-  }
-}
-function onTouchMove(e) {
-  if (!joyActive) return;
-  for (const t of e.changedTouches) {
-    if (t.identifier !== joyId) continue;
-    let dx = t.clientX - joyStart.x;
-    let dy = t.clientY - joyStart.y;
-    const len = Math.hypot(dx, dy);
-    const maxL = JOY_RADIUS - 10;
-    if (len > maxL) { dx = (dx/len)*maxL; dy = (dy/len)*maxL; }
-    joyStick.style.left = (joyStart.x + dx) + 'px';
-    joyStick.style.top = (joyStart.y + dy) + 'px';
-    state.myInput.x = dx / maxL;
-    state.myInput.y = dy / maxL;
-  }
-}
-function onTouchEnd(e) {
-  for (const t of e.changedTouches) {
-    if (t.identifier !== joyId) continue;
-    joyActive = false;
-    joyId = null;
-    joyBase.style.display = 'none';
-    joyStick.style.display = 'none';
-    state.myInput.x = 0;
-    state.myInput.y = 0;
-  }
-}
-const joyLayer = $('joy');
-joyLayer.addEventListener('touchstart', onTouchStart, { passive: false });
-joyLayer.addEventListener('touchmove', onTouchMove, { passive: false });
-joyLayer.addEventListener('touchend', onTouchEnd, { passive: false });
-joyLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
-
-// Мышь для теста на компе
-let mouseDown = false;
-joyLayer.addEventListener('mousedown', (e) => {
-  if (!state.inGame) return;
-  mouseDown = true;
-  joyActive = true;
-  joyStart.x = e.clientX; joyStart.y = e.clientY;
-  joyBase.style.display = 'block'; joyStick.style.display = 'block';
-  joyBase.style.left = (e.clientX - JOY_RADIUS) + 'px';
-  joyBase.style.top = (e.clientY - JOY_RADIUS) + 'px';
-  joyStick.style.left = e.clientX + 'px';
-  joyStick.style.top = e.clientY + 'px';
-});
-addEventListener('mousemove', (e) => {
-  if (!mouseDown) return;
-  let dx = e.clientX - joyStart.x, dy = e.clientY - joyStart.y;
-  const len = Math.hypot(dx, dy);
-  const maxL = JOY_RADIUS - 10;
-  if (len > maxL) { dx = (dx/len)*maxL; dy = (dy/len)*maxL; }
-  joyStick.style.left = (joyStart.x + dx) + 'px';
-  joyStick.style.top = (joyStart.y + dy) + 'px';
-  state.myInput.x = dx / maxL;
-  state.myInput.y = dy / maxL;
-});
-addEventListener('mouseup', () => {
-  if (!mouseDown) return;
-  mouseDown = false;
-  joyActive = false;
-  joyBase.style.display = 'none';
-  joyStick.style.display = 'none';
-  state.myInput.x = 0; state.myInput.y = 0;
-});
-
-// ============ NETWORK SEND (input) ============
-setInterval(() => {
-  if (state.inGame) socket.emit('input', state.myInput);
-}, 50);
-
-// ============ RENDER ============
-function drawArena() {
-  // Фон-трава
-  ctx
+const
