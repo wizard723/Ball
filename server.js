@@ -5,100 +5,103 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' },
-  pingTimeout: 20000,
-  pingInterval: 10000
-});
-
+const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingInterval: 10000 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ================== CONSTANTS ==================
-const ARENA_R = 520;
-const PLAYER_R = 32;
-const BALL_R = 22;
-const PLAYER_MAX = 380;
-const PLAYER_ACCEL = 950;
-const FRICTION = 0.985;
+const PLAYER_R = 30;
+const BALL_R = 20;
+const PLAYER_MAX = 260;      // медленнее
+const PLAYER_ACCEL = 700;
+const FRICTION = 0.982;
 const BOUNCE = 0.72;
-const KICK_IMPULSE = 620;
-const PASS_IMPULSE = 420;
-const DASH_IMPULSE = 700;
-const DASH_CD = 2.0;
+const KICK_MAX = 480;
+const PASS_MAX = 320;
+const DASH_IMPULSE = 480;
+const DASH_CD = 2.5;
+const MAGNET_RANGE = 220;
+const MAGNET_FORCE = 320;
 const SERVER_TICK = 60;
 const SYNC_RATE = 20;
-const MAX_GOALS = 5;
 const MAX_PLAYERS = 4;
 
-const TEAM_COLORS = { red: '#ff3366', blue: '#33aaff' };
+const ARENAS = {
+  classic:   { w: 1800, h: 1100 },  // прямоугольник
+  ice:       { w: 1800, h: 1100 },
+  obstacles: { w: 1900, h: 1200 },
+  narrow:    { w: 2400, h: 800 }
+};
+
+const MODES = { classic: {goals: 5}, time: {duration: 120}, golden: {goals: 1}, chaos: {goals: 5} };
 
 const rooms = {};
 
-// ================== HELPERS ==================
 function genCode() {
   const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s = '';
   for (let i = 0; i < 5; i++) s += c[Math.floor(Math.random() * c.length)];
   return rooms[s] ? genCode() : s;
 }
-function sanitize(s, def = 'Игрок') {
-  return String(s || def).replace(/[<>]/g, '').slice(0, 14);
-}
-function sanitizeNum(n) {
-  const v = parseInt(n);
-  return isNaN(v) ? 0 : Math.max(0, Math.min(99, v));
-}
+function sanitize(s, d='Игрок') { return String(s || d).replace(/[<>]/g, '').slice(0, 14); }
+function sanitizeNum(n) { const v = parseInt(n); return isNaN(v) ? 0 : Math.max(0, Math.min(99, v)); }
+function sanitizeColor(c) { return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#ff3366'; }
 
 function assignTeams(room) {
-  // Первые 2 — красные, следующие 2 — синие
   const ids = Object.keys(room.players);
-  const redCount = ids.filter(id => room.players[id].team === 'red').length;
-  const blueCount = ids.filter(id => room.players[id].team === 'blue').length;
-  if (redCount <= blueCount) return 'red';
-  return 'blue';
+  const r = ids.filter(id => room.players[id].team === 'red').length;
+  const b = ids.filter(id => room.players[id].team === 'blue').length;
+  return r <= b ? 'red' : 'blue';
+}
+
+function arenaBounds(room) {
+  const a = ARENAS[room.settings.arena] || ARENAS.classic;
+  return { minX: -a.w/2, maxX: a.w/2, minY: -a.h/2, maxY: a.h/2, w: a.w, h: a.h };
 }
 
 function resetPositions(room) {
   const ids = Object.keys(room.players);
   const reds = ids.filter(id => room.players[id].team === 'red');
   const blues = ids.filter(id => room.players[id].team === 'blue');
-
-  // Красные — слева, синие — справа
+  const bd = arenaBounds(room);
   reds.forEach((id, i) => {
     const p = room.players[id];
-    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 90;
-    p.x = -320;
+    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 80;
+    p.x = bd.minX + 150;
     p.y = spread;
-    p.vx = 0; p.vy = 0;
+    p.vx = 0; p.vy = 0; p.magnetOn = false;
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
-    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 90;
-    p.x = 320;
+    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 80;
+    p.x = bd.maxX - 150;
     p.y = spread;
-    p.vx = 0; p.vy = 0;
+    p.vx = 0; p.vy = 0; p.magnetOn = false;
   });
 
-  room.ball = { x: 0, y: 0, vx: 0, vy: 0 };
+  room.balls = [{ x: 0, y: 0, vx: 0, vy: 0 }];
+  if (room.settings.mode === 'chaos') {
+    room.balls.push({ x: 0, y: -200, vx: 0, vy: 0 });
+    room.balls.push({ x: 0, y: 200, vx: 0, vy: 0 });
+  }
   room.lastToucher = null;
 }
 
 function getPlayersPublic(room) {
   return Object.entries(room.players).map(([id, p]) => ({
-    id, name: p.name, color: p.color, team: p.team, number: p.number
+    id, name: p.name, color: p.color, team: p.team, number: p.number, skin: p.skin
   }));
 }
 
-// ================== GAME LOOP ==================
 function startRoomLoop(code) {
   const room = rooms[code];
   if (!room || room.loop) return;
   room.loopRunning = true;
   room.lastTick = Date.now();
   room.syncTick = 0;
-
-  resetPositions(room);
   room.score = { red: 0, blue: 0 };
+  room.startTime = Date.now();
+  room.mode = room.settings.mode || 'classic';
+  room.timeLeft = MODES[room.mode]?.duration || 0;
+  resetPositions(room);
 
   room.loop = setInterval(() => {
     const now = Date.now();
@@ -107,200 +110,241 @@ function startRoomLoop(code) {
     if (dt > 0.05) dt = 0.05;
     if (dt <= 0) return;
 
-    // ---- Integrate players ----
+    const bd = arenaBounds(room);
+    const iceFriction = room.settings.arena === 'ice' ? 0.998 : FRICTION;
+
+    // Time mode countdown
+    if (room.mode === 'time') {
+      room.timeLeft -= dt;
+      if (room.timeLeft <= 0) {
+        finishMatch(room, code);
+        return;
+      }
+    }
+
+    // Players
     for (const id in room.players) {
       const p = room.players[id];
       const inp = room.inputs[id] || { x: 0, y: 0 };
-
       p.vx += inp.x * PLAYER_ACCEL * dt;
       p.vy += inp.y * PLAYER_ACCEL * dt;
-
       const sp = Math.hypot(p.vx, p.vy);
-      if (sp > PLAYER_MAX) {
-        p.vx = (p.vx / sp) * PLAYER_MAX;
-        p.vy = (p.vy / sp) * PLAYER_MAX;
-      }
+      if (sp > PLAYER_MAX) { p.vx = p.vx/sp*PLAYER_MAX; p.vy = p.vy/sp*PLAYER_MAX; }
       if (Math.hypot(inp.x, inp.y) < 0.01) {
-        const f = Math.pow(FRICTION, dt * 60);
+        const f = Math.pow(iceFriction, dt * 60);
         p.vx *= f; p.vy *= f;
       }
-
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-
       if (p.dashCd > 0) p.dashCd -= dt;
-    }
 
-    // ---- Integrate ball ----
-    const b = room.ball;
-    const bf = Math.pow(0.99, dt * 60);
-    b.vx *= bf; b.vy *= bf;
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
-
-    // ---- Player-player collisions ----
-    const ids = Object.keys(room.players);
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        const a = room.players[ids[i]];
-        const c = room.players[ids[j]];
-        const dx = c.x - a.x, dy = c.y - a.y;
-        const d = Math.hypot(dx, dy);
-        const minD = a.r + c.r;
-        if (d < minD && d > 0.001) {
-          const nx = dx / d, ny = dy / d;
-          const ov = minD - d;
-          a.x -= nx * ov * 0.5; a.y -= ny * ov * 0.5;
-          c.x += nx * ov * 0.5; c.y += ny * ov * 0.5;
-          const rvx = c.vx - a.vx, rvy = c.vy - a.vy;
-          const vn = rvx * nx + rvy * ny;
-          if (vn < 0) {
-            const jImp = -(1 + BOUNCE) * vn / 2;
-            a.vx -= jImp * nx; a.vy -= jImp * ny;
-            c.vx += jImp * nx; c.vy += jImp * ny;
+      // Magnet
+      if (p.magnetOn) {
+        for (const b of room.balls) {
+          const dx = p.x - b.x, dy = p.y - b.y;
+          const d = Math.hypot(dx, dy);
+          if (d < MAGNET_RANGE && d > 1) {
+            const f = MAGNET_FORCE * (1 - d/MAGNET_RANGE);
+            b.vx += (dx/d) * f * dt;
+            b.vy += (dy/d) * f * dt;
           }
         }
       }
     }
 
-    // ---- Player-ball collision ----
-    for (const id in room.players) {
-      const p = room.players[id];
-      const dx = b.x - p.x, dy = b.y - p.y;
-      const d = Math.hypot(dx, dy);
-      const minD = p.r + BALL_R;
-      if (d < minD && d > 0.001) {
-        const nx = dx / d, ny = dy / d;
-        const ov = minD - d;
-        b.x += nx * ov; b.y += ny * ov;
-        p.x -= nx * ov * 0.3; p.y -= ny * ov * 0.3;
-
-        const pSpeed = Math.hypot(p.vx, p.vy);
-        const kick = Math.max(180, pSpeed * 1.2);
-        b.vx += nx * kick;
-        b.vy += ny * kick;
-
-        const bSp = Math.hypot(b.vx, b.vy);
-        const maxB = 950;
-        if (bSp > maxB) { b.vx = (b.vx / bSp) * maxB; b.vy = (b.vy / bSp) * maxB; }
-
-        room.lastToucher = id;
-      }
+    // Balls
+    for (const b of room.balls) {
+      const bf = Math.pow(0.99, dt * 60);
+      b.vx *= bf; b.vy *= bf;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      const bSp = Math.hypot(b.vx, b.vy);
+      if (bSp > 700) { b.vx = b.vx/bSp*700; b.vy = b.vy/bSp*700; }
     }
 
-    // ---- Arena bounds ----
-    function bound(o, isBall) {
-      const dx = o.x, dy = o.y;
-      const dist = Math.hypot(dx, dy);
-      const maxD = ARENA_R - o.r;
-      if (dist > maxD && dist > 0.001) {
-        const nx = dx / dist, ny = dy / dist;
-        o.x = nx * maxD; o.y = ny * maxD;
-        const vn = o.vx * nx + o.vy * ny;
-        if (vn > 0) {
-          o.vx -= (1 + BOUNCE) * vn * nx;
-          o.vy -= (1 + BOUNCE) * vn * ny;
+    // Player-player collisions
+    const ids = Object.keys(room.players);
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i+1; j < ids.length; j++) {
+        const a = room.players[ids[i]], c = room.players[ids[j]];
+        const dx = c.x - a.x, dy = c.y - a.y;
+        const d = Math.hypot(dx, dy);
+        const md = PLAYER_R * 2;
+        if (d < md && d > 0.001) {
+          const nx = dx/d, ny = dy/d, ov = md - d;
+          a.x -= nx*ov*0.5; a.y -= ny*ov*0.5;
+          c.x += nx*ov*0.5; c.y += ny*ov*0.5;
+          const rvx = c.vx - a.vx, rvy = c.vy - a.vy;
+          const vn = rvx*nx + rvy*ny;
+          if (vn < 0) {
+            const j2 = -(1+BOUNCE)*vn/2;
+            a.vx -= j2*nx; a.vy -= j2*ny;
+            c.vx += j2*nx; c.vy += j2*ny;
+          }
         }
       }
     }
-    for (const id in room.players) bound(room.players[id], false);
-    bound(b, true);
 
-    // ---- Goal detection: ball escapes arena ----
-    const bDist = Math.hypot(b.x, b.y);
-    if (bDist > ARENA_R + BALL_R) {
-      // Determine scoring team (opposite of last toucher's team)
-      let scoringTeam = null;
-      if (room.lastToucher && room.players[room.lastToucher]) {
-        const lt = room.players[room.lastToucher];
-        scoringTeam = lt.team === 'red' ? 'blue' : 'red';
-        // Actually: goal counts for toucher's TEAM (ball goes into opposite goal)
-        scoringTeam = lt.team;
-      } else {
-        scoringTeam = b.y > 0 ? 'red' : 'blue';
+    // Player-ball collisions
+    for (const id in room.players) {
+      const p = room.players[id];
+      for (const b of room.balls) {
+        const dx = b.x - p.x, dy = b.y - p.y;
+        const d = Math.hypot(dx, dy);
+        const md = PLAYER_R + BALL_R;
+        if (d < md && d > 0.001) {
+          const nx = dx/d, ny = dy/d, ov = md - d;
+          b.x += nx*ov; b.y += ny*ov;
+          p.x -= nx*ov*0.3; p.y -= ny*ov*0.3;
+          const pSp = Math.hypot(p.vx, p.vy);
+          const kick = Math.max(100, pSp * 1.1);
+          b.vx += nx*kick; b.vy += ny*kick;
+          room.lastToucher = id;
+        }
+      }
+    }
+
+    // Boundaries (rectangle)
+    function boundRect(o, r) {
+      if (o.x < bd.minX + r) { o.x = bd.minX + r; o.vx = Math.abs(o.vx) * BOUNCE; }
+      if (o.x > bd.maxX - r) { o.x = bd.maxX - r; o.vx = -Math.abs(o.vx) * BOUNCE; }
+      if (o.y < bd.minY + r) { o.y = bd.minY + r; o.vy = Math.abs(o.vy) * BOUNCE; }
+      if (o.y > bd.maxY - r) { o.y = bd.maxY - r; o.vy = -Math.abs(o.vy) * BOUNCE; }
+    }
+    for (const id in room.players) boundRect(room.players[id], PLAYER_R);
+
+    // Ball escaped through left/right = GOAL
+    for (let bi = 0; bi < room.balls.length; bi++) {
+      const b = room.balls[bi];
+      const escapedLeft = b.x < bd.minX - BALL_R;
+      const escapedRight = b.x > bd.maxX + BALL_R;
+
+      if (!escapedLeft && !escapedRight) {
+        // Still in field — clamp vertical only
+        if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy)*BOUNCE; }
+        if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy)*BOUNCE; }
+        continue;
       }
 
+      // Goal! Ball went left => red scores (red attacks right? no — red left, so they score on right)
+      // Красные атакуют вправо (их ворота слева). Забили синие в левые ворота? 
+      // Упростим: гол забивает тот, кто коснулся последним
+      let scoringTeam = 'red';
+      if (room.lastToucher && room.players[room.lastToucher]) {
+        scoringTeam = room.players[room.lastToucher].team;
+      } else {
+        scoringTeam = escapedLeft ? 'blue' : 'red';
+      }
       room.score[scoringTeam]++;
-      const scorer = room.lastToucher ? room.players[room.lastToucher]?.name : '?';
-
       io.to(code).emit('goal', {
-        team: scoringTeam,
-        scorer,
-        red: room.score.red,
-        blue: room.score.blue
+        team: scoringTeam, red: room.score.red, blue: room.score.blue,
+        scorerName: room.lastToucher ? room.players[room.lastToucher]?.name : ''
       });
 
-      if (room.score[scoringTeam] >= MAX_GOALS) {
-        io.to(code).emit('matchEnd', {
-          winner: scoringTeam,
-          red: room.score.red,
-          blue: room.score.blue
-        });
-        // Keep loop running but frozen? — просто остановим
-        clearInterval(room.loop);
-        room.loop = null;
-        room.loopRunning = false;
+      const goalLimit = MODES[room.mode]?.goals || 5;
+      if (room.score[scoringTeam] >= goalLimit) {
+        if (room.mode === 'golden') {
+          // Already finished
+          finishMatch(room, code);
+          return;
+        }
+        finishMatch(room, code);
         return;
       }
-
       resetPositions(room);
     }
 
-    // ---- Sync ----
+    // Sync
     room.syncTick++;
-    const syncEvery = Math.round(SERVER_TICK / SYNC_RATE);
-    if (room.syncTick >= syncEvery) {
+    const every = Math.round(SERVER_TICK / SYNC_RATE);
+    if (room.syncTick >= every) {
       room.syncTick = 0;
-      const snap = { ball: { x: b.x, y: b.y, vx: b.vx, vy: b.vy }, players: {} };
+      const snap = {
+        balls: room.balls.map(b => ({x:b.x, y:b.y, vx:b.vx, vy:b.vy})),
+        players: {},
+        timeLeft: room.timeLeft
+      };
       for (const id in room.players) {
         const p = room.players[id];
-        snap.players[id] = {
-          x: p.x, y: p.y, vx: p.vx, vy: p.vy, dashCd: p.dashCd
-        };
+        snap.players[id] = { x: p.x, y: p.y, vx: p.vx, vy: p.vy, dashCd: p.dashCd, magnetOn: p.magnetOn };
       }
       io.to(code).volatile.emit('state', snap);
     }
   }, 1000 / SERVER_TICK);
 }
 
-// ================== SOCKET ==================
+function finishMatch(room, code) {
+  if (room.loop) clearInterval(room.loop);
+  room.loop = null;
+  room.loopRunning = false;
+  let winner = 'draw';
+  if (room.score.red > room.score.blue) winner = 'red';
+  else if (room.score.blue > room.score.red) winner = 'blue';
+  io.to(code).emit('matchEnd', {
+    winner, red: room.score.red, blue: room.score.blue
+  });
+}
+
 io.on('connection', (socket) => {
-  socket.on('createRoom', ({ name, color, number }, cb) => {
+  socket.on('createRoom', ({ name, color, number, skin }, cb) => {
     const code = genCode();
     rooms[code] = {
-      players: {}, inputs: {}, lastToucher: null,
-      loop: null, loopRunning: false, host: socket.id, started: false
+      players: {}, inputs: {}, lastToucher: null, loop: null, loopRunning: false,
+      host: socket.id, started: false,
+      settings: { arena: 'classic', mode: 'classic', teamMode: 'auto' },
+      scores: { red: 0, blue: 0 }
     };
     const room = rooms[code];
     room.players[socket.id] = {
-      name: sanitize(name), color: color || '#ff3366', number: sanitizeNum(number),
-      team: 'red', x: -320, y: 0, vx: 0, vy: 0, r: PLAYER_R, dashCd: 0
+      name: sanitize(name), color: sanitizeColor(color), number: sanitizeNum(number),
+      skin: sanitize(skin||'plain').slice(0,10),
+      team: 'red', x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, magnetOn: false
     };
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(code);
     socket.roomCode = code;
-    cb({ ok: true, code, players: getPlayersPublic(room), host: socket.id });
+    cb({ ok: true, code, players: getPlayersPublic(room), host: socket.id, settings: room.settings });
   });
 
-  socket.on('joinRoom', ({ code, name, color, number }, cb) => {
+  socket.on('joinRoom', ({ code, name, color, number, skin }, cb) => {
     code = (code || '').toUpperCase().trim();
     if (!rooms[code]) return cb({ ok: false, error: 'Комната не найдена' });
-    if (Object.keys(rooms[code].players).length >= MAX_PLAYERS)
-      return cb({ ok: false, error: 'Комната заполнена (макс 4)' });
-    if (rooms[code].started) return cb({ ok: false, error: 'Матч уже идёт' });
-
     const room = rooms[code];
+    if (Object.keys(room.players).length >= MAX_PLAYERS) return cb({ ok: false, error: 'Комната заполнена' });
+    if (room.started) return cb({ ok: false, error: 'Матч уже идёт' });
     const team = assignTeams(room);
     room.players[socket.id] = {
-      name: sanitize(name), color: color || '#33aaff', number: sanitizeNum(number),
-      team, x: 0, y: 0, vx: 0, vy: 0, r: PLAYER_R, dashCd: 0
+      name: sanitize(name), color: sanitizeColor(color), number: sanitizeNum(number),
+      skin: sanitize(skin||'plain').slice(0,10),
+      team, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, magnetOn: false
     };
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(code);
     socket.roomCode = code;
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+    cb({ ok: true, code, players: getPlayersPublic(room), host: room.host, settings: room.settings });
+  });
 
-    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host });
-    cb({ ok: true, code, players: getPlayersPublic(room), host: room.host });
+  socket.on('updateSettings', (settings) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    if (room.host !== socket.id) return;
+    if (settings.arena && ARENAS[settings.arena]) room.settings.arena = settings.arena;
+    if (settings.mode && MODES[settings.mode]) room.settings.mode = settings.mode;
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+  });
+
+  socket.on('swapTeam', (targetId) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    if (room.host !== socket.id) return;
+    const p = room.players[targetId];
+    if (p) {
+      p.team = p.team === 'red' ? 'blue' : 'red';
+      io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+    }
   });
 
   socket.on('startGame', () => {
@@ -312,7 +356,7 @@ io.on('connection', (socket) => {
     room.started = true;
     io.to(code).emit('countdown');
     setTimeout(() => {
-      io.to(code).emit('gameStarted', { players: getPlayersPublic(room) });
+      io.to(code).emit('gameStarted', { players: getPlayersPublic(room), settings: room.settings });
       startRoomLoop(code);
     }, 3200);
   });
@@ -322,42 +366,68 @@ io.on('connection', (socket) => {
     if (!code || !rooms[code]) return;
     const inp = rooms[code].inputs[socket.id];
     if (!inp) return;
-    let x = Number(data.x) || 0;
-    let y = Number(data.y) || 0;
-    const len = Math.hypot(x, y);
-    if (len > 1) { x /= len; y /= len; }
+    let x = Number(data.x) || 0, y = Number(data.y) || 0;
+    const l = Math.hypot(x, y);
+    if (l > 1) { x /= l; y /= l; }
     inp.x = x; inp.y = y;
   });
 
-  socket.on('action', (type) => {
+  socket.on('action', ({ type, dirX, dirY, power }) => {
     const code = socket.roomCode;
     if (!code || !rooms[code]) return;
     const room = rooms[code];
     const p = room.players[socket.id];
-    const b = room.ball;
-    if (!p || !b) return;
+    if (!p) return;
 
     if (type === 'dash') {
       if (p.dashCd > 0) return;
       p.dashCd = DASH_CD;
       const inp = room.inputs[socket.id];
-      const dirLen = Math.hypot(inp.x, inp.y);
-      if (dirLen > 0.1) {
-        p.vx += (inp.x / dirLen) * DASH_IMPULSE;
-        p.vy += (inp.y / dirLen) * DASH_IMPULSE;
-      }
+      const l = Math.hypot(inp.x, inp.y);
+      if (l > 0.1) { p.vx += (inp.x/l)*DASH_IMPULSE; p.vy += (inp.y/l)*DASH_IMPULSE; }
+    } else if (type === 'magnet_on') {
+      p.magnetOn = true;
+    } else if (type === 'magnet_off') {
+      p.magnetOn = false;
     } else if (type === 'kick' || type === 'pass') {
-      const dx = b.x - p.x, dy = b.y - p.y;
-      const d = Math.hypot(dx, dy);
-      const range = type === 'kick' ? (p.r + b.r + 30) : (p.r + b.r + 40);
-      if (d < range && d > 0.001) {
-        const nx = dx / d, ny = dy / d;
-        const impulse = type === 'kick' ? KICK_IMPULSE : PASS_IMPULSE;
-        b.vx += nx * impulse;
-        b.vy += ny * impulse;
-        room.lastToucher = socket.id;
+      // Find nearest ball in range
+      let bestB = null, bestD = 9999;
+      for (const b of room.balls) {
+        const dx = b.x - p.x, dy = b.y - p.y;
+        const d = Math.hypot(dx, dy);
+        const range = (type === 'kick' ? 55 : 65) + PLAYER_R + BALL_R;
+        if (d < range && d < bestD) { bestD = d; bestB = b; }
       }
+      if (!bestB) return;
+      const power = Math.max(0.2, Math.min(1, power || 1));
+      const maxImp = type === 'kick' ? KICK_MAX : PASS_MAX;
+      const imp = maxImp * power;
+      // Direction: use dirX/dirY if provided (curved), else ball direction
+      let dx = dirX, dy = dirY;
+      if (Math.hypot(dx, dy) < 0.1) {
+        dx = bestB.x - p.x; dy = bestB.y - p.y;
+      }
+      const l = Math.hypot(dx, dy) || 1;
+      bestB.vx += (dx/l) * imp;
+      bestB.vy += (dy/l) * imp;
+      room.lastToucher = socket.id;
     }
+  });
+
+  socket.on('emote', (em) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const p = rooms[code].players[socket.id];
+    if (!p) return;
+    io.to(code).emit('emote', { id: socket.id, em: String(em).slice(0, 4) });
+  });
+
+  socket.on('chat', (msg) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const p = rooms[code].players[socket.id];
+    if (!p) return;
+    io.to(code).emit('chat', { name: p.name, msg: String(msg).slice(0, 100) });
   });
 
   socket.on('rematch', () => {
@@ -365,11 +435,10 @@ io.on('connection', (socket) => {
     if (!code || !rooms[code]) return;
     const room = rooms[code];
     if (room.host !== socket.id) return;
-    room.score = { red: 0, blue: 0 };
     room.started = true;
     io.to(code).emit('countdown');
     setTimeout(() => {
-      io.to(code).emit('gameStarted', { players: getPlayersPublic(room) });
+      io.to(code).emit('gameStarted', { players: getPlayersPublic(room), settings: room.settings });
       startRoomLoop(code);
     }, 3200);
   });
@@ -380,20 +449,16 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     delete room.players[socket.id];
     delete room.inputs[socket.id];
-
     if (Object.keys(room.players).length === 0) {
       if (room.loop) clearInterval(room.loop);
       delete rooms[code];
       return;
     }
-    // Host reassignment
-    if (room.host === socket.id) {
-      room.host = Object.keys(room.players)[0];
-    }
-    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host });
+    if (room.host === socket.id) room.host = Object.keys(room.players)[0];
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
     io.to(code).emit('playerLeft', socket.id);
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Ball Brawl v2 on port ' + PORT));
+server.listen(PORT, () => console.log('Ball Brawl v3 on port ' + PORT));
