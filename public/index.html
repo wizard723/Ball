@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0f">
+<title>Ball Brawl</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#fff;font-family:-apple-system,Roboto,sans-serif;position:fixed;overscroll-behavior:none}
+canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.hidden{display:none!important}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;background:radial-gradient(circle at 50% 20%,#1a1a2e 0%,#0a0a0f 70%);z-index:10;overflow-y:auto}
+.title{font-size:38px;font-weight:900;letter-spacing:2px;margin-bottom:20px;text-align:center}
+.title span{color:#ff3366;text-shadow:0 0 20px rgba(255,51,102,.6)}
+.lbl{width:100%;max-width:340px;font-size:12px;color:#888;margin:12px 0 6px;text-transform:uppercase;letter-spacing:1px}
+.inp{width:100%;max-width:340px;padding:14px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:16px;outline:none;-webkit-user-select:text;user-select:text}
+.inp:focus{border-color:#ff3366}
+.inp.code{text-transform:uppercase;letter-spacing:4px;text-align:center;font-weight:bold}
+.colors{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:340px}
+.swatch{width:40px;height:40px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
+.swatch.active{border-color:#fff;transform:scale(1.15)}
+.btn{width:100%;max-width:340px;padding:16px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;transition:transform .1s;margin-top:14px}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:linear-gradient(135deg,#ff3366,#ff6633);color:#fff;box-shadow:0 4px 20px rgba(255,51,102,.4)}
+.btn.green{background:linear-gradient(135deg,#34c759,#28a745);color:#fff;box-shadow:0 4px 20px rgba(52,199,89,.4)}
+.btn.danger{background:rgba(255,60,60,.25);color:#ff6666}
+.err{color:#ff5566;margin-top:12px;font-size:14px;min-height:18px;text-align:center}
+.roomcode{font-size:38px;font-weight:900;letter-spacing:8px;color:#ff3366;margin:10px 0}
+.hint{color:#888;font-size:13px;text-align:center;margin:6px 0}
+.players-box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.pl-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,255,255,.06);border-radius:10px;font-size:14px}
+.pl-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
+#hud{position:absolute;inset:0;pointer-events:none;z-index:5}
+.hud-top{position:absolute;top:0;left:0;right:0;padding:12px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;gap:8px}
+.scoreboard{background:rgba(0,0,0,.6);padding:8px 14px;border-radius:12px;font-size:13px;display:flex;flex-direction:column;gap:4px;min-width:140px}
+.sb-row{display:flex;justify-content:space-between;gap:8px}
+.sb-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.exit{pointer-events:auto;width:40px;height:40px;border-radius:50%;background:rgba(255,60,60,.3);border:1px solid rgba(255,60,60,.6);color:#ff6666;font-size:18px;font-weight:700;flex-shrink:0}
+#goalMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:64px;font-weight:900;color:#ffcc00;text-shadow:0 0 40px rgba(255,204,0,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center}
+#goalMsg.show{opacity:1}
+#joy{position:absolute;inset:0;z-index:6}
+.joy-base{position:absolute;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);pointer-events:none;display:none}
+.joy-stick{position:absolute;width:60px;height:60px;border-radius:50%;background:rgba(255,51,102,.7);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%)}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="hud-top">
+    <div class="scoreboard" id="scoreboard"></div>
+    <button class="exit" id="exitBtn">✕</button>
+  </div>
+</div>
+
+<div id="joy">
+  <div class="joy-base" id="joyBase"></div>
+  <div class="joy-stick" id="joyStick"></div>
+</div>
+
+<div id="goalMsg"></div>
+
+<!-- MENU -->
+<div id="menu" class="screen">
+  <div class="title">⚽ BALL<br><span>BRAWL</span></div>
+  <div class="lbl">Ник</div>
+  <input id="nick" class="inp" maxlength="14" value="Игрок1">
+  <div class="lbl">Цвет</div>
+  <div id="colors" class="colors"></div>
+  <button id="btnCreate" class="btn primary">Создать комнату</button>
+  <div class="lbl">Код комнаты</div>
+  <input id="code" class="inp code" maxlength="5" placeholder="XXXXX" autocapitalize="characters">
+  <button id="btnJoin" class="btn green">Подключиться</button>
+  <div id="err" class="err"></div>
+</div>
+
+<!-- LOBBY -->
+<div id="lobby" class="screen hidden">
+  <div class="title" style="font-size:24px">Лобби</div>
+  <div class="hint">Код комнаты:</div>
+  <div class="roomcode" id="roomCodeLbl">-----</div>
+  <div class="hint">Игроков: <b id="plCount">1</b>/6</div>
+  <div class="players-box" id="plBox"></div>
+  <button id="btnStart" class="btn primary">Начать матч</button>
+  <button id="btnLeave" class="btn danger">Выйти</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(() => {
+'use strict';
+
+const ARENA = { radius: 500 };
+const PLAYER_RADIUS = 30;
+const BALL_RADIUS = 22;
+
+const state = {
+  socket: null,
+  myId: null,
+  roomCode: null,
+  inGame: false,
+  players: {},
+  ball: { x: 0, y: 0, vx: 0, vy: 0 },
+  myInput: { x: 0, y: 0 },
+  color: '#ff3366',
+  nick: 'Игрок1',
+  scores: {},
+  cam: { x: 0, y: 0 },
+  lastFrame: performance.now()
+};
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  W = canvas.width = innerWidth * DPR;
+  H = canvas.height = innerHeight * DPR;
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
+}
+addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 200));
+resize();
+
+const $ = id => document.getElementById(id);
+const menu = $('menu'), lobby = $('lobby'), hud = $('hud');
+
+// ============ COLORS ============
+const COLORS = ['#ff3366','#33ccff','#ffcc00','#66ff66','#ff66cc','#ff8800','#aa66ff','#00ffcc'];
+const colorsEl = $('colors');
+COLORS.forEach((c, i) => {
+  const d = document.createElement('div');
+  d.className = 'swatch' + (i === 0 ? ' active' : '');
+  d.style.background = c;
+  d.onclick = () => {
+    state.color = c;
+    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
+    d.classList.add('active');
+  };
+  colorsEl.appendChild(d);
+});
+
+// ============ SOCKET ============
+const socket = io();
+state.socket = socket;
+
+socket.on('connect', () => { state.myId = socket.id; });
+socket.on('disconnect', () => { showError('Соединение потеряно'); });
+
+socket.on('playerJoined', (p) => {
+  state.players[p.id] = p;
+  renderLobbyPlayers();
+});
+socket.on('playerLeft', (id) => {
+  delete state.players[id];
+  delete state.scores[id];
+  renderLobbyPlayers();
+});
+socket.on('state', (snap) => {
+  state.ball = snap.ball;
+  for (const id in snap.players) {
+    state.players[id] = { ...state.players[id], ...snap.players[id] };
+    state.scores[id] = snap.players[id].score;
+  }
+  renderScoreboard();
+});
+socket.on('goal', (data) => {
+  showGoal(data.name || 'Гол!');
+});
+socket.on('gameStarted', () => {
+  startGameClient();
+});
+
+// ============ MENU ============
+function showError(msg) {
+  $('err').textContent = msg;
+  setTimeout(() => { $('err').textContent = ''; }, 4000);
+}
+$('btnCreate').onclick = () => {
+  const name = $('nick').value.trim() || 'Игрок';
+  state.nick = name;
+  socket.emit('createRoom', { name, color: state.color }, (res) => {
+    if (!res.ok) return showError(res.error || 'Ошибка');
+    state.roomCode = res.code;
+    state.players = {};
+    res.players.forEach(p => state.players[p.id] = p);
+    enterLobby();
+  });
+};
+$('btnJoin').onclick = () => {
+  const code = $('code').value.trim().toUpperCase();
+  const name = $('nick').value.trim() || 'Игрок';
+  if (code.length !== 5) return showError('Код из 5 символов');
+  state.nick = name;
+  socket.emit('joinRoom', { code, name, color: state.color }, (res) => {
+    if (!res.ok) return showError(res.error || 'Ошибка');
+    state.roomCode = res.code;
+    state.players = {};
+    res.players.forEach(p => state.players[p.id] = p);
+    enterLobby();
+  });
+};
+
+function enterLobby() {
+  menu.classList.add('hidden');
+  lobby.classList.remove('hidden');
+  $('roomCodeLbl').textContent = state.roomCode;
+  renderLobbyPlayers();
+}
+function renderLobbyPlayers() {
+  const box = $('plBox');
+  box.innerHTML = '';
+  const list = Object.values(state.players);
+  $('plCount').textContent = list.length;
+  list.forEach(p => {
+    const d = document.createElement('div');
+    d.className = 'pl-item';
+    d.innerHTML = `<div class="pl-dot" style="background:${p.color}"></div>
+      <span>${escapeHtml(p.name)}${p.id === state.myId ? ' (вы)' : ''}</span>`;
+    box.appendChild(d);
+  });
+}
+
+$('btnStart').onclick = () => socket.emit('startGame');
+$('btnLeave').onclick = () => { socket.disconnect(); setTimeout(() => location.reload(), 200); };
+$('exitBtn').onclick = () => {
+  if (confirm('Выйти из матча?')) { socket.disconnect(); setTimeout(() => location.reload(), 200); }
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// ============ GAME START ============
+function startGameClient() {
+  lobby.classList.add('hidden');
+  hud.classList.remove('hidden');
+  state.inGame = true;
+  state.cam.x = 0; state.cam.y = 0;
+  requestAnimationFrame(loop);
+}
+
+function renderScoreboard() {
+  const sb = $('scoreboard');
+  const all = [];
+  for (const id in state.players) {
+    const p = state.players[id];
+    all.push({
+      id, name: p.name || 'Игрок', color: p.color || '#888',
+      score: state.scores[id] || 0, me: id === state.myId
+    });
+  }
+  all.sort((a, b) => b.score - a.score);
+  sb.innerHTML = all.map(p =>
+    `<div class="sb-row"><span><span class="sb-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}${p.me?' (вы)':''}</span><span><b>${p.score}</b></span></div>`
+  ).join('');
+}
+
+let goalTimer = null;
+function showGoal(name) {
+  const el = $('goalMsg');
+  el.textContent = 'ГОЛ! ' + name;
+  el.classList.add('show');
+  if (goalTimer) clearTimeout(goalTimer);
+  goalTimer = setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+// ============ JOYSTICK ============
+const joyBase = $('joyBase');
+const joyStick = $('joyStick');
+let joyActive = false;
+let joyId = null;
+let joyStart = { x: 0, y: 0 };
+const JOY_RADIUS = 70;
+
+function onTouchStart(e) {
+  if (!state.inGame) return;
+  for (const t of e.changedTouches) {
+    if (joyActive) continue;
+    joyActive = true;
+    joyId = t.identifier;
+    joyStart.x = t.clientX;
+    joyStart.y = t.clientY;
+    joyBase.style.display = 'block';
+    joyStick.style.display = 'block';
+    joyBase.style.left = (t.clientX - JOY_RADIUS) + 'px';
+    joyBase.style.top = (t.clientY - JOY_RADIUS) + 'px';
+    joyStick.style.left = t.clientX + 'px';
+    joyStick.style.top = t.clientY + 'px';
+  }
+}
+function onTouchMove(e) {
+  if (!joyActive) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyId) continue;
+    let dx = t.clientX - joyStart.x;
+    let dy = t.clientY - joyStart.y;
+    const len = Math.hypot(dx, dy);
+    const maxL = JOY_RADIUS - 10;
+    if (len > maxL) { dx = (dx/len)*maxL; dy = (dy/len)*maxL; }
+    joyStick.style.left = (joyStart.x + dx) + 'px';
+    joyStick.style.top = (joyStart.y + dy) + 'px';
+    state.myInput.x = dx / maxL;
+    state.myInput.y = dy / maxL;
+  }
+}
+function onTouchEnd(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyId) continue;
+    joyActive = false;
+    joyId = null;
+    joyBase.style.display = 'none';
+    joyStick.style.display = 'none';
+    state.myInput.x = 0;
+    state.myInput.y = 0;
+  }
+}
+const joyLayer = $('joy');
+joyLayer.addEventListener('touchstart', onTouchStart, { passive: false });
+joyLayer.addEventListener('touchmove', onTouchMove, { passive: false });
+joyLayer.addEventListener('touchend', onTouchEnd, { passive: false });
+joyLayer.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+// Мышь для теста на компе
+let mouseDown = false;
+joyLayer.addEventListener('mousedown', (e) => {
+  if (!state.inGame) return;
+  mouseDown = true;
+  joyActive = true;
+  joyStart.x = e.clientX; joyStart.y = e.clientY;
+  joyBase.style.display = 'block'; joyStick.style.display = 'block';
+  joyBase.style.left = (e.clientX - JOY_RADIUS) + 'px';
+  joyBase.style.top = (e.clientY - JOY_RADIUS) + 'px';
+  joyStick.style.left = e.clientX + 'px';
+  joyStick.style.top = e.clientY + 'px';
+});
+addEventListener('mousemove', (e) => {
+  if (!mouseDown) return;
+  let dx = e.clientX - joyStart.x, dy = e.clientY - joyStart.y;
+  const len = Math.hypot(dx, dy);
+  const maxL = JOY_RADIUS - 10;
+  if (len > maxL) { dx = (dx/len)*maxL; dy = (dy/len)*maxL; }
+  joyStick.style.left = (joyStart.x + dx) + 'px';
+  joyStick.style.top = (joyStart.y + dy) + 'px';
+  state.myInput.x = dx / maxL;
+  state.myInput.y = dy / maxL;
+});
+addEventListener('mouseup', () => {
+  if (!mouseDown) return;
+  mouseDown = false;
+  joyActive = false;
+  joyBase.style.display = 'none';
+  joyStick.style.display = 'none';
+  state.myInput.x = 0; state.myInput.y = 0;
+});
+
+// ============ NETWORK SEND (input) ============
+setInterval(() => {
+  if (state.inGame) socket.emit('input', state.myInput);
+}, 50);
+
+// ============ RENDER ============
+function drawArena() {
+  // Фон-трава
+  ctx
