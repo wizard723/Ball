@@ -10,7 +10,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const PLAYER_R = 30;
 const BALL_R = 20;
-const PLAYER_MAX = 260;      // медленнее
+const PLAYER_MAX = 260;
 const PLAYER_ACCEL = 700;
 const FRICTION = 0.982;
 const BOUNCE = 0.72;
@@ -18,19 +18,19 @@ const KICK_MAX = 480;
 const PASS_MAX = 320;
 const DASH_IMPULSE = 480;
 const DASH_CD = 2.5;
-const MAGNET_RANGE = 220;
-const MAGNET_FORCE = 320;
+const TACKLE_CD = 3;
+const AUTO_MAGNET_RANGE = 240;
+const AUTO_MAGNET_FORCE = 200;
 const SERVER_TICK = 60;
 const SYNC_RATE = 20;
 const MAX_PLAYERS = 4;
 
 const ARENAS = {
-  classic:   { w: 1800, h: 1100 },  // прямоугольник
+  classic:   { w: 1800, h: 1100 },
   ice:       { w: 1800, h: 1100 },
   obstacles: { w: 1900, h: 1200 },
   narrow:    { w: 2400, h: 800 }
 };
-
 const MODES = { classic: {goals: 5}, time: {duration: 120}, golden: {goals: 1}, chaos: {goals: 5} };
 
 const rooms = {};
@@ -67,14 +67,14 @@ function resetPositions(room) {
     const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 80;
     p.x = bd.minX + 150;
     p.y = spread;
-    p.vx = 0; p.vy = 0; p.magnetOn = false;
+    p.vx = 0; p.vy = 0;
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
     const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 80;
     p.x = bd.maxX - 150;
     p.y = spread;
-    p.vx = 0; p.vy = 0; p.magnetOn = false;
+    p.vx = 0; p.vy = 0;
   });
 
   room.balls = [{ x: 0, y: 0, vx: 0, vy: 0 }];
@@ -113,13 +113,9 @@ function startRoomLoop(code) {
     const bd = arenaBounds(room);
     const iceFriction = room.settings.arena === 'ice' ? 0.998 : FRICTION;
 
-    // Time mode countdown
     if (room.mode === 'time') {
       room.timeLeft -= dt;
-      if (room.timeLeft <= 0) {
-        finishMatch(room, code);
-        return;
-      }
+      if (room.timeLeft <= 0) { finishMatch(room, code); return; }
     }
 
     // Players
@@ -137,17 +133,16 @@ function startRoomLoop(code) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       if (p.dashCd > 0) p.dashCd -= dt;
+      if (p.tackleCd > 0) p.tackleCd -= dt;
 
-      // Magnet
-      if (p.magnetOn) {
-        for (const b of room.balls) {
-          const dx = p.x - b.x, dy = p.y - b.y;
-          const d = Math.hypot(dx, dy);
-          if (d < MAGNET_RANGE && d > 1) {
-            const f = MAGNET_FORCE * (1 - d/MAGNET_RANGE);
-            b.vx += (dx/d) * f * dt;
-            b.vy += (dy/d) * f * dt;
-          }
+      // Auto-magnet для всех игроков
+      for (const b of room.balls) {
+        const dx = p.x - b.x, dy = p.y - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d < AUTO_MAGNET_RANGE && d > 1) {
+          const f = AUTO_MAGNET_FORCE * (1 - d / AUTO_MAGNET_RANGE);
+          b.vx += (dx/d) * f * dt;
+          b.vy += (dy/d) * f * dt;
         }
       }
     }
@@ -204,7 +199,7 @@ function startRoomLoop(code) {
       }
     }
 
-    // Boundaries (rectangle)
+    // Boundaries
     function boundRect(o, r) {
       if (o.x < bd.minX + r) { o.x = bd.minX + r; o.vx = Math.abs(o.vx) * BOUNCE; }
       if (o.x > bd.maxX - r) { o.x = bd.maxX - r; o.vx = -Math.abs(o.vx) * BOUNCE; }
@@ -213,22 +208,18 @@ function startRoomLoop(code) {
     }
     for (const id in room.players) boundRect(room.players[id], PLAYER_R);
 
-    // Ball escaped through left/right = GOAL
+    // Goals
     for (let bi = 0; bi < room.balls.length; bi++) {
       const b = room.balls[bi];
       const escapedLeft = b.x < bd.minX - BALL_R;
       const escapedRight = b.x > bd.maxX + BALL_R;
 
       if (!escapedLeft && !escapedRight) {
-        // Still in field — clamp vertical only
         if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy)*BOUNCE; }
         if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy)*BOUNCE; }
         continue;
       }
 
-      // Goal! Ball went left => red scores (red attacks right? no — red left, so they score on right)
-      // Красные атакуют вправо (их ворота слева). Забили синие в левые ворота? 
-      // Упростим: гол забивает тот, кто коснулся последним
       let scoringTeam = 'red';
       if (room.lastToucher && room.players[room.lastToucher]) {
         scoringTeam = room.players[room.lastToucher].team;
@@ -242,15 +233,7 @@ function startRoomLoop(code) {
       });
 
       const goalLimit = MODES[room.mode]?.goals || 5;
-      if (room.score[scoringTeam] >= goalLimit) {
-        if (room.mode === 'golden') {
-          // Already finished
-          finishMatch(room, code);
-          return;
-        }
-        finishMatch(room, code);
-        return;
-      }
+      if (room.score[scoringTeam] >= goalLimit) { finishMatch(room, code); return; }
       resetPositions(room);
     }
 
@@ -266,7 +249,10 @@ function startRoomLoop(code) {
       };
       for (const id in room.players) {
         const p = room.players[id];
-        snap.players[id] = { x: p.x, y: p.y, vx: p.vx, vy: p.vy, dashCd: p.dashCd, magnetOn: p.magnetOn };
+        snap.players[id] = {
+          x: p.x, y: p.y, vx: p.vx, vy: p.vy,
+          dashCd: p.dashCd, tackleCd: p.tackleCd
+        };
       }
       io.to(code).volatile.emit('state', snap);
     }
@@ -291,14 +277,13 @@ io.on('connection', (socket) => {
     rooms[code] = {
       players: {}, inputs: {}, lastToucher: null, loop: null, loopRunning: false,
       host: socket.id, started: false,
-      settings: { arena: 'classic', mode: 'classic', teamMode: 'auto' },
-      scores: { red: 0, blue: 0 }
+      settings: { arena: 'classic', mode: 'classic' }
     };
     const room = rooms[code];
     room.players[socket.id] = {
       name: sanitize(name), color: sanitizeColor(color), number: sanitizeNum(number),
       skin: sanitize(skin||'plain').slice(0,10),
-      team: 'red', x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, magnetOn: false
+      team: 'red', x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, tackleCd: 0
     };
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(code);
@@ -316,7 +301,7 @@ io.on('connection', (socket) => {
     room.players[socket.id] = {
       name: sanitize(name), color: sanitizeColor(color), number: sanitizeNum(number),
       skin: sanitize(skin||'plain').slice(0,10),
-      team, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, magnetOn: false
+      team, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, tackleCd: 0
     };
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(code);
@@ -385,12 +370,28 @@ io.on('connection', (socket) => {
       const inp = room.inputs[socket.id];
       const l = Math.hypot(inp.x, inp.y);
       if (l > 0.1) { p.vx += (inp.x/l)*DASH_IMPULSE; p.vy += (inp.y/l)*DASH_IMPULSE; }
-    } else if (type === 'magnet_on') {
-      p.magnetOn = true;
-    } else if (type === 'magnet_off') {
-      p.magnetOn = false;
+    } else if (type === 'tackle') {
+      if (p.tackleCd > 0) return;
+      p.tackleCd = TACKLE_CD;
+      for (const b of room.balls) {
+        const dx = b.x - p.x, dy = b.y - p.y;
+        const d = Math.hypot(dx, dy);
+        if (d < PLAYER_R + BALL_R + 60 && d > 1) {
+          const nx = dx/d, ny = dy/d;
+          b.vx += nx * 300; b.vy += ny * 300;
+          room.lastToucher = socket.id;
+          for (const id in room.players) {
+            if (id === socket.id) continue;
+            const o = room.players[id];
+            if (o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < 120) {
+              o.vx *= 0.3; o.vy *= 0.3;
+            }
+          }
+        }
+      }
+    } else if (type === 'magnet_on' || type === 'magnet_off') {
+      // Игнор — магнит автоматический
     } else if (type === 'kick' || type === 'pass') {
-      // Find nearest ball in range
       let bestB = null, bestD = 9999;
       for (const b of room.balls) {
         const dx = b.x - p.x, dy = b.y - p.y;
@@ -399,14 +400,11 @@ io.on('connection', (socket) => {
         if (d < range && d < bestD) { bestD = d; bestB = b; }
       }
       if (!bestB) return;
-      const power = Math.max(0.2, Math.min(1, power || 1));
+      const powerLevel = Math.max(0.2, Math.min(1, power || 1));
       const maxImp = type === 'kick' ? KICK_MAX : PASS_MAX;
-      const imp = maxImp * power;
-      // Direction: use dirX/dirY if provided (curved), else ball direction
+      const imp = maxImp * powerLevel;
       let dx = dirX, dy = dirY;
-      if (Math.hypot(dx, dy) < 0.1) {
-        dx = bestB.x - p.x; dy = bestB.y - p.y;
-      }
+      if (Math.hypot(dx, dy) < 0.1) { dx = bestB.x - p.x; dy = bestB.y - p.y; }
       const l = Math.hypot(dx, dy) || 1;
       bestB.vx += (dx/l) * imp;
       bestB.vy += (dy/l) * imp;
@@ -461,4 +459,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Ball Brawl v3 on port ' + PORT));
+server.listen(PORT, () => console.log('Ball Brawl v4 on port ' + PORT));
