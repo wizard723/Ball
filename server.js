@@ -8,22 +8,13 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingInterval: 10000 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-const PLAYER_R = 30;
-const BALL_R = 20;
-const PLAYER_MAX = 260;
-const PLAYER_ACCEL = 700;
-const FRICTION = 0.982;
-const BOUNCE = 0.72;
-const KICK_MAX = 480;
-const PASS_MAX = 320;
-const DASH_IMPULSE = 480;
-const DASH_CD = 2.5;
-const TACKLE_CD = 3;
-const AUTO_MAGNET_RANGE = 240;
-const AUTO_MAGNET_FORCE = 200;
-const SERVER_TICK = 60;
-const SYNC_RATE = 20;
-const MAX_PLAYERS = 4;
+const PLAYER_R = 30, BALL_R = 20;
+const PLAYER_MAX = 260, PLAYER_ACCEL = 700;
+const FRICTION = 0.982, BOUNCE = 0.72;
+const KICK_MAX = 480, PASS_MAX = 320;
+const DASH_IMPULSE = 480, DASH_CD = 2.5, TACKLE_CD = 3;
+const AUTO_MAGNET_RANGE = 240, AUTO_MAGNET_FORCE = 200;
+const SERVER_TICK = 60, SYNC_RATE = 20, MAX_PLAYERS = 4;
 
 const ARENAS = {
   classic:   { w: 1800, h: 1100 },
@@ -31,7 +22,9 @@ const ARENAS = {
   obstacles: { w: 1900, h: 1200 },
   narrow:    { w: 2400, h: 800 }
 };
-const MODES = { classic: {goals: 5}, time: {duration: 120}, golden: {goals: 1}, chaos: {goals: 5} };
+const MODES = { classic: {goals: 5}, time: {duration: 120}, golden: {goals: 1}, chaos: {goals: 5}, penalty: {goals: 5} };
+const WEATHERS = { clear: 1, rain: 0.92, night: 1, fog: 1 };
+const TEAM_COLORS = { red: '#ff3366', blue: '#33aaff' };
 
 const rooms = {};
 
@@ -65,24 +58,24 @@ function resetPositions(room) {
   reds.forEach((id, i) => {
     const p = room.players[id];
     const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 80;
-    p.x = bd.minX + 150;
-    p.y = spread;
-    p.vx = 0; p.vy = 0;
+    p.x = bd.minX + 150; p.y = spread; p.vx = 0; p.vy = 0;
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
     const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 80;
-    p.x = bd.maxX - 150;
-    p.y = spread;
-    p.vx = 0; p.vy = 0;
+    p.x = bd.maxX - 150; p.y = spread; p.vx = 0; p.vy = 0;
   });
-
   room.balls = [{ x: 0, y: 0, vx: 0, vy: 0 }];
   if (room.settings.mode === 'chaos') {
     room.balls.push({ x: 0, y: -200, vx: 0, vy: 0 });
     room.balls.push({ x: 0, y: 200, vx: 0, vy: 0 });
   }
+  if (room.settings.mode === 'penalty') {
+    room.balls = [{ x: -bd.w/2 + 300, y: 0, vx: 0, vy: 0 }];
+  }
   room.lastToucher = null;
+  room.lastGoalTime = 0;
+  room.combo = { red: 0, blue: 0 };
 }
 
 function getPlayersPublic(room) {
@@ -112,13 +105,13 @@ function startRoomLoop(code) {
 
     const bd = arenaBounds(room);
     const iceFriction = room.settings.arena === 'ice' ? 0.998 : FRICTION;
+    const weatherFriction = WEATHERS[room.settings.weather] || 1;
 
     if (room.mode === 'time') {
       room.timeLeft -= dt;
       if (room.timeLeft <= 0) { finishMatch(room, code); return; }
     }
 
-    // Players
     for (const id in room.players) {
       const p = room.players[id];
       const inp = room.inputs[id] || { x: 0, y: 0 };
@@ -127,15 +120,13 @@ function startRoomLoop(code) {
       const sp = Math.hypot(p.vx, p.vy);
       if (sp > PLAYER_MAX) { p.vx = p.vx/sp*PLAYER_MAX; p.vy = p.vy/sp*PLAYER_MAX; }
       if (Math.hypot(inp.x, inp.y) < 0.01) {
-        const f = Math.pow(iceFriction, dt * 60);
+        const f = Math.pow(iceFriction * weatherFriction, dt * 60);
         p.vx *= f; p.vy *= f;
       }
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.dashCd > 0) p.dashCd -= dt;
       if (p.tackleCd > 0) p.tackleCd -= dt;
 
-      // Auto-magnet для всех игроков
       for (const b of room.balls) {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy);
@@ -147,17 +138,14 @@ function startRoomLoop(code) {
       }
     }
 
-    // Balls
     for (const b of room.balls) {
       const bf = Math.pow(0.99, dt * 60);
       b.vx *= bf; b.vy *= bf;
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
+      b.x += b.vx * dt; b.y += b.vy * dt;
       const bSp = Math.hypot(b.vx, b.vy);
       if (bSp > 700) { b.vx = b.vx/bSp*700; b.vy = b.vy/bSp*700; }
     }
 
-    // Player-player collisions
     const ids = Object.keys(room.players);
     for (let i = 0; i < ids.length; i++) {
       for (let j = i+1; j < ids.length; j++) {
@@ -180,7 +168,6 @@ function startRoomLoop(code) {
       }
     }
 
-    // Player-ball collisions
     for (const id in room.players) {
       const p = room.players[id];
       for (const b of room.balls) {
@@ -199,7 +186,6 @@ function startRoomLoop(code) {
       }
     }
 
-    // Boundaries
     function boundRect(o, r) {
       if (o.x < bd.minX + r) { o.x = bd.minX + r; o.vx = Math.abs(o.vx) * BOUNCE; }
       if (o.x > bd.maxX - r) { o.x = bd.maxX - r; o.vx = -Math.abs(o.vx) * BOUNCE; }
@@ -208,7 +194,6 @@ function startRoomLoop(code) {
     }
     for (const id in room.players) boundRect(room.players[id], PLAYER_R);
 
-    // Goals
     for (let bi = 0; bi < room.balls.length; bi++) {
       const b = room.balls[bi];
       const escapedLeft = b.x < bd.minX - BALL_R;
@@ -227,17 +212,25 @@ function startRoomLoop(code) {
         scoringTeam = escapedLeft ? 'blue' : 'red';
       }
       room.score[scoringTeam]++;
+      room.combo[scoringTeam]++;
+
+      const comboLbl = room.combo[scoringTeam] >= 4 ? 'ОГОНЬ!' :
+                       room.combo[scoringTeam] === 3 ? 'ХЕТ-ТРИК!' :
+                       room.combo[scoringTeam] === 2 ? 'ДУБЛЬ!' : '';
       io.to(code).emit('goal', {
         team: scoringTeam, red: room.score.red, blue: room.score.blue,
-        scorerName: room.lastToucher ? room.players[room.lastToucher]?.name : ''
+        scorerName: room.lastToucher ? room.players[room.lastToucher]?.name : '',
+        combo: comboLbl
       });
+
+      const otherTeam = scoringTeam === 'red' ? 'blue' : 'red';
+      room.combo[otherTeam] = 0;
 
       const goalLimit = MODES[room.mode]?.goals || 5;
       if (room.score[scoringTeam] >= goalLimit) { finishMatch(room, code); return; }
       resetPositions(room);
     }
 
-    // Sync
     room.syncTick++;
     const every = Math.round(SERVER_TICK / SYNC_RATE);
     if (room.syncTick >= every) {
@@ -272,12 +265,12 @@ function finishMatch(room, code) {
 }
 
 io.on('connection', (socket) => {
-  socket.on('createRoom', ({ name, color, number, skin }, cb) => {
+  socket.on('createRoom', ({ name, color, number, skin, ballSkin, arenaColor }, cb) => {
     const code = genCode();
     rooms[code] = {
       players: {}, inputs: {}, lastToucher: null, loop: null, loopRunning: false,
       host: socket.id, started: false,
-      settings: { arena: 'classic', mode: 'classic' }
+      settings: { arena: 'classic', mode: 'classic', weather: 'clear', ballSkin: ballSkin || 'classic', arenaColor: arenaColor || '#2a6d2a' }
     };
     const room = rooms[code];
     room.players[socket.id] = {
@@ -291,7 +284,7 @@ io.on('connection', (socket) => {
     cb({ ok: true, code, players: getPlayersPublic(room), host: socket.id, settings: room.settings });
   });
 
-  socket.on('joinRoom', ({ code, name, color, number, skin }, cb) => {
+  socket.on('joinRoom', ({ code, name, color, number, skin, ballSkin, arenaColor }, cb) => {
     code = (code || '').toUpperCase().trim();
     if (!rooms[code]) return cb({ ok: false, error: 'Комната не найдена' });
     const room = rooms[code];
@@ -317,19 +310,10 @@ io.on('connection', (socket) => {
     if (room.host !== socket.id) return;
     if (settings.arena && ARENAS[settings.arena]) room.settings.arena = settings.arena;
     if (settings.mode && MODES[settings.mode]) room.settings.mode = settings.mode;
+    if (settings.weather && WEATHERS[settings.weather]) room.settings.weather = settings.weather;
+    if (settings.ballSkin) room.settings.ballSkin = sanitize(settings.ballSkin).slice(0,10);
+    if (settings.arenaColor && /^#[0-9a-fA-F]{6}$/.test(settings.arenaColor)) room.settings.arenaColor = settings.arenaColor;
     io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
-  });
-
-  socket.on('swapTeam', (targetId) => {
-    const code = socket.roomCode;
-    if (!code || !rooms[code]) return;
-    const room = rooms[code];
-    if (room.host !== socket.id) return;
-    const p = room.players[targetId];
-    if (p) {
-      p.team = p.team === 'red' ? 'blue' : 'red';
-      io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
-    }
   });
 
   socket.on('startGame', () => {
@@ -389,8 +373,6 @@ io.on('connection', (socket) => {
           }
         }
       }
-    } else if (type === 'magnet_on' || type === 'magnet_off') {
-      // Игнор — магнит автоматический
     } else if (type === 'kick' || type === 'pass') {
       let bestB = null, bestD = 9999;
       for (const b of room.balls) {
@@ -459,4 +441,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Ball Brawl v4 on port ' + PORT));
+server.listen(PORT, () => console.log('Ball Brawl v5 on port ' + PORT));
