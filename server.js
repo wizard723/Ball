@@ -10,6 +10,21 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingInterval: 10000 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// 5. PWA: Static manifest endpoint with proper headers
+app.get('/manifest.webmanifest', (req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.json({
+    name: 'Ball Brawl Pro',
+    short_name: 'Ball Brawl',
+    start_url: '/',
+    display: 'fullscreen',
+    orientation: 'landscape',
+    background_color: '#070a12',
+    theme_color: '#070a12',
+    icons: []
+  });
+});
+
 // ==== CONSTANTS & BALANCE ====
 const PLAYER_R = 30, BALL_R = 20;
 const PLAYER_MAX = 390, DASH_IMPULSE = 660;
@@ -21,18 +36,20 @@ const DRIBBLE_DIST = PLAYER_R + BALL_R + 3;
 const SERVER_TICK = 60, SYNC_RATE = 30, MAX_PLAYERS = 6;
 const GOAL_DEPTH = 78;
 
+// 2. Geometry: Vertical pitch (Top & Bottom goals, Horizontal center line y = 0)
 const ARENAS = {
-  classic:   { w: 1800, h: 1100, obstacles: [] },
-  ice:       { w: 1800, h: 1100, obstacles: [] },
-  obstacles: { w: 1900, h: 1200, obstacles: [[-300, -200, 100, 60], [300, 200, 100, 60], [0, 0, 80, 80]] },
-  narrow:    { w: 2400, h: 800, obstacles: [] }
+  classic:   { w: 1100, h: 1800, obstacles: [] },
+  ice:       { w: 1100, h: 1800, obstacles: [] },
+  obstacles: { w: 1200, h: 1900, obstacles: [[-200, -300, 60, 100], [200, 300, 60, 100], [0, 0, 80, 80]] },
+  narrow:    { w: 800,  h: 2400, obstacles: [] }
 };
 const MODES = {
-  classic: { goals: 5 },
-  time:    { duration: 120 },
-  golden:  { goals: 1 },
-  chaos:   { goals: 5 },
-  penalty: { goals: 5 }
+  classic:    { goals: 5 },
+  time:       { duration: 120 },
+  golden:     { goals: 1 },
+  chaos:      { goals: 5 },
+  penalty:    { goals: 5 },
+  tournament: { goals: 3 }
 };
 const WEATHERS = { clear: 1, rain: 0.94, night: 1, fog: 1 };
 const CELEBRATIONS = ['slide', 'spin', 'jump', 'flex'];
@@ -55,9 +72,10 @@ const BALL_SKIN_CATALOG = {
 const COMMON_PLAYER_SKINS = ['star'];
 const COMMON_BALL_SKINS = ['beach'];
 
-// ==== PERSISTENT DATA STORE ====
+// ==== PERSISTENT DATA STORE & SECURITY ====
 const DATA_FILE = path.join(__dirname, 'ball_brawl_data.json');
 const ADMIN_SECRET_HASH = crypto.createHash('sha256').update('Srm7vAd').digest('hex');
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 const DEFAULT_PROMOS = {
   'BALL2026':   { type: 'coins', value: 50, maxUses: 100000, usedCount: 0, active: true },
@@ -71,8 +89,48 @@ let db = {
   accounts: {},
   promos: JSON.parse(JSON.stringify(DEFAULT_PROMOS)),
   adminLogs: [],
-  claimedMatchAwards: {}
+  reports: [],
+  claimedMatchAwards: {},
+  offlineTickets: {}
 };
+
+// 3. Account Security: HMAC signed tokens so clients cannot spoof accountId
+function signAccountToken(accountId) {
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(String(accountId)).digest('hex');
+  return `${accountId}.${sig}`;
+}
+
+function verifyAccountToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const idx = token.lastIndexOf('.');
+  if (idx <= 0) return null;
+  const id = token.slice(0, idx);
+  const sig = token.slice(idx + 1);
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(id).digest('hex');
+  try {
+    if (crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return id;
+  } catch (e) {}
+  return null;
+}
+
+function getAuthenticatedAccount(socket, providedToken, providedId, nick) {
+  if (socket.accountId && db.accounts[socket.accountId]) {
+    return normalizeAccount(db.accounts[socket.accountId], socket.accountId, nick);
+  }
+  const verifiedId = verifyAccountToken(providedToken);
+  if (verifiedId && db.accounts[verifiedId]) {
+    socket.accountId = verifiedId;
+    return normalizeAccount(db.accounts[verifiedId], verifiedId, nick);
+  }
+  let cleanId = String(providedId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+  if (cleanId && db.accounts[cleanId] && !providedToken) {
+    // Existing account without valid token -> issue a fresh isolated account to prevent hijacking
+    cleanId = 'acc_' + crypto.randomBytes(8).toString('hex');
+  }
+  const acc = getOrCreateAccount(cleanId, nick);
+  socket.accountId = acc.id;
+  return acc;
+}
 
 function todayStr() {
   const d = new Date();
@@ -124,9 +182,6 @@ function normalizeAccount(acc, cleanId, nick) {
       questClaimed: false
     };
   }
-  if (!acc.daily.questReward || acc.daily.questReward < 75 || acc.daily.questReward > 150) {
-    acc.daily.questReward = 75 + Math.floor(Math.random() * 76);
-  }
   acc.lastSeen = Date.now();
   return acc;
 }
@@ -138,6 +193,7 @@ function loadDB() {
       db.accounts = parsed.accounts || {};
       db.promos = Object.assign(JSON.parse(JSON.stringify(DEFAULT_PROMOS)), parsed.promos || {});
       db.adminLogs = Array.isArray(parsed.adminLogs) ? parsed.adminLogs.slice(-500) : [];
+      db.reports = Array.isArray(parsed.reports) ? parsed.reports.slice(-300) : [];
       db.claimedMatchAwards = parsed.claimedMatchAwards || {};
       for (const [id, acc] of Object.entries(db.accounts)) {
         normalizeAccount(acc, id);
@@ -158,7 +214,13 @@ function scheduleSaveDB() {
       if (keys.length > 2500) {
         keys.slice(0, keys.length - 1800).forEach(k => delete db.claimedMatchAwards[k]);
       }
-      fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf8');
+      fs.writeFileSync(DATA_FILE, JSON.stringify({
+        accounts: db.accounts,
+        promos: db.promos,
+        adminLogs: db.adminLogs,
+        reports: db.reports,
+        claimedMatchAwards: db.claimedMatchAwards
+      }, null, 2), 'utf8');
     } catch (e) {
       console.error('DB save error:', e.message);
     }
@@ -168,30 +230,16 @@ loadDB();
 
 function getOrCreateAccount(accountId, nick) {
   let cleanId = String(accountId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
-  if (!cleanId) cleanId = 'acc_' + crypto.randomBytes(6).toString('hex');
+  if (!cleanId) cleanId = 'acc_' + crypto.randomBytes(8).toString('hex');
   if (!db.accounts[cleanId]) {
     db.accounts[cleanId] = normalizeAccount({
       id: cleanId,
       nick: sanitize(nick || 'Игрок'),
-      coins: 0,
-      wins: 0,
-      goals: 0,
-      assists: 0,
-      matches: 0,
-      shots: 0,
-      passes: 0,
-      penaltyRecord: 0,
-      ownedSkins: ['plain'],
-      ownedBallSkins: ['classic'],
-      usedPromos: [],
-      friends: [],
-      friendRequestsIn: [],
-      friendRequestsOut: [],
-      blocked: [],
-      recentOpponents: [],
+      coins: 0, wins: 0, goals: 0, assists: 0, matches: 0, shots: 0, passes: 0, penaltyRecord: 0,
+      ownedSkins: ['plain'], ownedBallSkins: ['classic'], usedPromos: [],
+      friends: [], friendRequestsIn: [], friendRequestsOut: [], blocked: [], recentOpponents: [],
       season: { xp: 0, claimedTiers: [], quests: { goals: 0, passes: 0, wins: 0, claimed: {} } },
-      createdAt: Date.now(),
-      lastSeen: Date.now()
+      createdAt: Date.now(), lastSeen: Date.now()
     }, cleanId, nick);
     scheduleSaveDB();
     return db.accounts[cleanId];
@@ -202,12 +250,7 @@ function getOrCreateAccount(accountId, nick) {
 }
 
 function logAdminAction(actorId, action, details) {
-  db.adminLogs.push({
-    ts: new Date().toISOString(),
-    actorId: String(actorId || 'unknown'),
-    action: String(action),
-    details
-  });
+  db.adminLogs.push({ ts: new Date().toISOString(), actorId: String(actorId || 'unknown'), action: String(action), details });
   if (db.adminLogs.length > 500) db.adminLogs.shift();
   scheduleSaveDB();
 }
@@ -235,9 +278,9 @@ function publicAccountPayload(acc) {
 
 // ==== RUNTIME STATE, FRIENDS, INVITES & PRIVATE ROOMS ====
 const rooms = {};
-const privateRooms = {}; // code -> roomId
-const matchInvites = {}; // inviteId -> { id, fromAccountId, fromNick, fromSocketId, toAccountId, roomId, createdAt }
-const disconnectedSessions = {}; // `${accountId}:${roomId}` -> { roomId, accountId, playerSnapshot, team, disconnectedAt, timeout }
+const privateRooms = {};
+const matchInvites = {};
+const disconnectedSessions = {};
 const adminSessions = new Set();
 
 function genRoomId(prefix = 'M_') {
@@ -265,9 +308,7 @@ function getUserStatus(accountId) {
   const onlineSockets = getSocketsByAccountId(accountId);
   if (!onlineSockets.length) return 'offline';
   for (const s of onlineSockets) {
-    if (s.roomId && rooms[s.roomId]) {
-      return rooms[s.roomId].started ? 'in_match' : 'in_lobby';
-    }
+    if (s.roomId && rooms[s.roomId]) return rooms[s.roomId].started ? 'in_match' : 'in_lobby';
   }
   return 'online';
 }
@@ -279,15 +320,7 @@ function buildFriendsPayload(acc) {
     const status = getUserStatus(fid);
     const activeSocket = getSocketsByAccountId(fid).find(s => s.roomId && rooms[s.roomId]);
     const r = activeSocket ? rooms[activeSocket.roomId] : null;
-    return {
-      id: facc.id,
-      nick: facc.nick,
-      wins: facc.wins,
-      goals: facc.goals,
-      status,
-      roomId: r ? r.id : null,
-      roomCode: r && r.isPrivate ? r.inviteCode : null
-    };
+    return { id: facc.id, nick: facc.nick, wins: facc.wins, goals: facc.goals, status, roomId: r ? r.id : null, roomCode: r && r.isPrivate ? r.inviteCode : null };
   }).filter(Boolean);
 
   const incoming = (acc.friendRequestsIn || []).map(fromId => {
@@ -307,20 +340,43 @@ function pushFriendsUpdate(accountId) {
   const acc = db.accounts[accountId];
   if (!acc) return;
   const payload = buildFriendsPayload(acc);
-  for (const s of getSocketsByAccountId(accountId)) {
-    s.emit('friendsUpdate', payload);
+  for (const s of getSocketsByAccountId(accountId)) s.emit('friendsUpdate', payload);
+}
+
+// Helper to cleanly leave current room before joining/creating another (Fixes Critical Bug #6)
+function leaveCurrentRoom(socket) {
+  const oldRoomId = socket.roomId;
+  if (!oldRoomId || !rooms[oldRoomId]) {
+    socket.roomId = null;
+    return;
+  }
+  const room = rooms[oldRoomId];
+  socket.leave(oldRoomId);
+  socket.roomId = null;
+  for (const b of (room.balls || [])) { if (b.ownerId === socket.id) b.ownerId = null; }
+  delete room.players[socket.id];
+  delete room.inputs[socket.id];
+  delete room.lastSeq[socket.id];
+
+  if (Object.keys(room.players).length === 0) {
+    if (room.loop) clearInterval(room.loop);
+    if (room.countdownTimer) clearTimeout(room.countdownTimer);
+    if (room.inviteCode && privateRooms[room.inviteCode] === oldRoomId) delete privateRooms[room.inviteCode];
+    delete rooms[oldRoomId];
+  } else {
+    if (room.host === socket.id) room.host = Object.keys(room.players)[0];
+    if (room.isPrivate) autoBalanceRoom(room);
+    emitRoomState(room);
+    io.to(oldRoomId).emit('playerLeft', socket.id);
   }
 }
 
-// ==== ANTI-SPAM & RATE LIMITING ====
+// ==== RATE LIMITING ====
 const rateBuckets = new Map();
 function allowRate(key, limitPerSec, burst = limitPerSec * 2) {
   const now = Date.now();
   let b = rateBuckets.get(key);
-  if (!b) {
-    b = { tokens: burst, last: now };
-    rateBuckets.set(key, b);
-  }
+  if (!b) { b = { tokens: burst, last: now }; rateBuckets.set(key, b); }
   const elapsed = (now - b.last) / 1000;
   b.last = now;
   b.tokens = Math.min(burst, b.tokens + elapsed * limitPerSec);
@@ -350,54 +406,54 @@ function autoBalanceRoom(room) {
   const reds = active.filter(p => p.team === 'red');
   const blues = active.filter(p => p.team === 'blue');
   while (reds.length > blues.length + 1 && blues.length < maxPerTeam) {
-    const moved = reds.pop();
-    moved.team = 'blue';
-    blues.push(moved);
+    const moved = reds.pop(); moved.team = 'blue'; blues.push(moved);
   }
   while (blues.length > reds.length + 1 && reds.length < maxPerTeam) {
-    const moved = blues.pop();
-    moved.team = 'red';
-    reds.push(moved);
+    const moved = blues.pop(); moved.team = 'red'; reds.push(moved);
   }
 }
 
 function arenaBounds(room) {
   const a = ARENAS[room.settings.arena] || ARENAS.classic;
-  return {
-    minX: -a.w / 2, maxX: a.w / 2,
-    minY: -a.h / 2, maxY: a.h / 2,
-    w: a.w, h: a.h,
-    obstacles: a.obstacles || []
-  };
+  return { minX: -a.w / 2, maxX: a.w / 2, minY: -a.h / 2, maxY: a.h / 2, w: a.w, h: a.h, obstacles: a.obstacles || [] };
 }
 
 function createPlayerState(base) {
   return {
     ...base,
-    x: 0, y: 0, vx: 0, vy: 0, facing: 0,
-    stamina: 100,
-    dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0,
+    x: 0, y: 0, vx: 0, vy: 0, facing: -Math.PI / 2,
+    stamina: 100, dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0,
+    lastInputAt: Date.now(), afkWarned: false,
     ready: false,
-    stats: { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 }
+    heatmap: [],
+    stats: { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, passes: 0, passesCompleted: 0, tackles: 0, saves: 0 }
   };
 }
 
+// 2. & 4. Vertical Pitch Spawn + Halftime Side Swap Support
 function resetPositions(room) {
   const ids = Object.keys(room.players);
   const reds = ids.filter(id => room.players[id].team === 'red');
   const blues = ids.filter(id => room.players[id].team === 'blue');
   const bd = arenaBounds(room);
+  const swapped = Boolean(room.sidesSwapped);
+
+  // By default: Red defends BOTTOM (maxY), attacks TOP (minY); Blue defends TOP (minY), attacks BOTTOM (maxY)
+  const redY = swapped ? (bd.minY + 180) : (bd.maxY - 180);
+  const redFacing = swapped ? (Math.PI / 2) : (-Math.PI / 2);
+  const blueY = swapped ? (bd.maxY - 180) : (bd.minY + 180);
+  const blueFacing = swapped ? (-Math.PI / 2) : (Math.PI / 2);
 
   reds.forEach((id, i) => {
     const p = room.players[id];
-    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 95;
-    p.x = bd.minX + 170; p.y = spread; p.vx = 0; p.vy = 0; p.facing = 0;
+    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 110;
+    p.x = spread; p.y = redY; p.vx = 0; p.vy = 0; p.facing = redFacing;
     p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
-    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 95;
-    p.x = bd.maxX - 170; p.y = spread; p.vx = 0; p.vy = 0; p.facing = Math.PI;
+    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 110;
+    p.x = spread; p.y = blueY; p.vx = 0; p.vy = 0; p.facing = blueFacing;
     p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
   });
 
@@ -410,11 +466,11 @@ function resetPositions(room) {
 
   room.balls = [mkBall(0, 0)];
   if (room.settings.mode === 'chaos') {
-    room.balls.push(mkBall(0, -210));
-    room.balls.push(mkBall(0, 210));
+    room.balls.push(mkBall(-180, 0));
+    room.balls.push(mkBall(180, 0));
   }
   if (room.settings.mode === 'penalty') {
-    room.balls = [mkBall(-bd.w / 2 + 320, 0)];
+    room.balls = [mkBall(0, bd.minY + 340)];
   }
   room.lastToucher = null;
   room.prevToucher = null;
@@ -427,19 +483,31 @@ function getPlayersPublic(room) {
     id, accountId: p.accountId, name: p.name, color: p.color, team: p.team,
     number: p.number, skin: p.skin, ready: Boolean(p.ready),
     celebration: p.celebration || 'jump',
-    stats: p.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 }
+    stats: p.stats || { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, passes: 0, passesCompleted: 0, tackles: 0, saves: 0 }
   }));
 }
 
 function emitRoomState(room) {
   io.to(room.id).emit('lobbyUpdate', {
     roomId: room.id,
+    roomName: room.roomName || `Комната ${room.inviteCode || room.id.slice(-4)}`,
     isPrivate: Boolean(room.isPrivate),
     inviteCode: room.inviteCode || null,
     players: getPlayersPublic(room),
     host: room.host,
     settings: room.settings
   });
+}
+
+function recordEvent(room, type, text, team = null) {
+  if (!room.events) room.events = [];
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - (room.startTime || Date.now())) / 1000));
+  const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+  const ss = String(elapsedSec % 60).padStart(2, '0');
+  const ev = { time: `${mm}:${ss}`, type, text, team };
+  room.events.push(ev);
+  if (room.events.length > 60) room.events.shift();
+  io.to(room.id).emit('matchEvent', ev);
 }
 
 function recordTouch(room, playerId) {
@@ -449,8 +517,13 @@ function recordTouch(room, playerId) {
     const curP = room.players[playerId];
     if (prevP && curP && prevP.team === curP.team) {
       room.prevToucher = room.lastToucher;
+      if (room.pendingPassFrom === room.lastToucher && prevP.stats) {
+        prevP.stats.passesCompleted = (prevP.stats.passesCompleted || 0) + 1;
+        room.pendingPassFrom = null;
+      }
     } else {
       room.prevToucher = null;
+      room.pendingPassFrom = null;
     }
   }
   room.lastToucher = playerId;
@@ -498,23 +571,36 @@ function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign
   b.powerGlow = Math.min(1, powerLevel * speedBonus * (isOvercharged ? 1.2 : 1));
   b.lastTeam = p.team;
 
-  if (!room.stats) room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  if (!room.stats) room.stats = { shots: { red: 0, blue: 0 }, shotsOnTarget: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  const bd = arenaBounds(room);
+  const goalHalfW = (bd.w * 0.32) / 2;
+
   if (p.team === 'red' || p.team === 'blue') {
     if (kind === 'kick' || kind === 'finesse' || kind === 'lob') {
       room.stats.shots[p.team]++;
       if (p.stats) p.stats.shots++;
+      // Check if shot trajectory points toward enemy goal mouth
+      const enemyGoalY = ((p.team === 'red') !== Boolean(room.sidesSwapped)) ? bd.minY : bd.maxY;
+      if ((enemyGoalY < 0 && ny < -0.15) || (enemyGoalY > 0 && ny > 0.15)) {
+        const tGoal = (enemyGoalY - b.y) / ny;
+        const projX = b.x + nx * tGoal;
+        if (Math.abs(projX) <= goalHalfW + BALL_R) {
+          room.stats.shotsOnTarget[p.team] = (room.stats.shotsOnTarget[p.team] || 0) + 1;
+          if (p.stats) p.stats.shotsOnTarget = (p.stats.shotsOnTarget || 0) + 1;
+        }
+      }
+      recordEvent(room, 'shot', `Удар: ${p.name}`, p.team);
     }
     if (kind === 'pass' || kind === 'lob') {
       room.stats.passes[p.team]++;
       if (p.stats) p.stats.passes++;
+      room.pendingPassFrom = playerId;
     }
   }
 
   recordTouch(room, playerId);
   io.to(room.id).emit('ballImpact', { x: b.x, y: b.y, power: powerLevel, kind, overcharged: isOvercharged });
-  if (imp > 660) {
-    io.to(room.id).emit('screenShake', { intensity: Math.min(13, (imp - 600) / 36) });
-  }
+  if (imp > 660) io.to(room.id).emit('screenShake', { intensity: Math.min(13, (imp - 600) / 36) });
 }
 
 function resolveCircleRect(o, r, rx, ry, rw, rh, bounce) {
@@ -535,33 +621,39 @@ function resolveCircleRect(o, r, rx, ry, rw, rh, bounce) {
   }
 }
 
-// Goal registration strictly checks crossing goal line plane BEFORE boundary wall bounce
-function checkGoalSegment(b, minX, maxX, goalHalfH) {
+// 1. CRITICAL FIX: Plane-crossing goal detection along Y-axis (Top/Bottom goals) BEFORE any goal-line collision
+function checkGoalSegment(b, minY, maxY, goalHalfW, sidesSwapped = false) {
   const inZ = (b.z || 0) <= 72;
   if (!inZ) return null;
 
-  const yTol = goalHalfH + BALL_R * 0.35;
-  const leftLine = minX;
-  const rightLine = maxX;
+  const xTol = goalHalfW + BALL_R * 0.35;
+  const topLine = minY;
+  const bottomLine = maxY;
 
-  if (b.x <= leftLine + BALL_R * 0.25) {
-    if (b.prevX > leftLine) {
-      const t = (leftLine - b.prevX) / ((b.x - b.prevX) || -1e-6);
-      const crossY = b.prevY + (b.y - b.prevY) * Math.max(0, Math.min(1, t));
-      if (Math.abs(crossY) <= yTol) return 'blue';
-    } else if (Math.abs(b.y) <= yTol && b.x < leftLine) {
-      return 'blue';
+  // Top goal crossed
+  if (b.y <= topLine + BALL_R * 0.25) {
+    let crossed = false;
+    if (b.prevY > topLine) {
+      const t = (topLine - b.prevY) / ((b.y - b.prevY) || -1e-6);
+      const crossX = b.prevX + (b.x - b.prevX) * Math.max(0, Math.min(1, t));
+      if (Math.abs(crossX) <= xTol) crossed = true;
+    } else if (Math.abs(b.x) <= xTol && b.y < topLine) {
+      crossed = true;
     }
+    if (crossed) return sidesSwapped ? 'blue' : 'red';
   }
 
-  if (b.x >= rightLine - BALL_R * 0.25) {
-    if (b.prevX < rightLine) {
-      const t = (rightLine - b.prevX) / ((b.x - b.prevX) || 1e-6);
-      const crossY = b.prevY + (b.y - b.prevY) * Math.max(0, Math.min(1, t));
-      if (Math.abs(crossY) <= yTol) return 'red';
-    } else if (Math.abs(b.y) <= yTol && b.x > rightLine) {
-      return 'red';
+  // Bottom goal crossed
+  if (b.y >= bottomLine - BALL_R * 0.25) {
+    let crossed = false;
+    if (b.prevY < bottomLine) {
+      const t = (bottomLine - b.prevY) / ((b.y - b.prevY) || 1e-6);
+      const crossX = b.prevX + (b.x - b.prevX) * Math.max(0, Math.min(1, t));
+      if (Math.abs(crossX) <= xTol) crossed = true;
+    } else if (Math.abs(b.x) <= xTol && b.y > bottomLine) {
+      crossed = true;
     }
+    if (crossed) return sidesSwapped ? 'red' : 'blue';
   }
   return null;
 }
@@ -569,8 +661,7 @@ function checkGoalSegment(b, minX, maxX, goalHalfH) {
 function checkAllPlayersReady(room) {
   const players = Object.values(room.players);
   const active = players.filter(p => p.team !== 'spec');
-  const minRequired = room.isPrivate ? 2 : 2;
-  if (active.length < minRequired) return false;
+  if (active.length < 2) return false;
   return players.every(p => p.ready === true);
 }
 
@@ -600,6 +691,21 @@ function triggerMatchStartSequence(room) {
   }, 3100);
 }
 
+function computeMVP(room) {
+  let best = null;
+  let bestScore = -1;
+  for (const [id, p] of Object.entries(room.players)) {
+    if (p.team === 'spec') continue;
+    const st = p.stats || {};
+    const score = (st.goals || 0) * 5 + (st.assists || 0) * 3 + (st.saves || 0) * 3 + (st.tackles || 0) * 1.5 + (st.shotsOnTarget || 0) * 1;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { id, name: p.name, team: p.team, score: Math.round(score * 10) / 10, stats: st };
+    }
+  }
+  return best;
+}
+
 function startRoomLoop(roomId) {
   const room = rooms[roomId];
   if (!room || room.loop) return;
@@ -607,18 +713,32 @@ function startRoomLoop(roomId) {
   room.loopRunning = true;
   room.lastTick = Date.now();
   room.syncTick = 0;
+  room.heatmapTick = 0;
   room.score = { red: 0, blue: 0 };
   room.goalSeq = 0;
   room.goalLockUntil = 0;
-  room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  room.half = 1;
+  room.sidesSwapped = false;
+  room.halftimePausedUntil = 0;
+  room.inOvertime = false;
+  room.events = [];
+  room.stats = { shots: { red: 0, blue: 0 }, shotsOnTarget: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+
   for (const id in room.players) {
-    room.players[id].stats = { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
+    room.players[id].stats = { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, passes: 0, passesCompleted: 0, tackles: 0, saves: 0 };
     room.players[id].stamina = 100;
+    room.players[id].heatmap = [];
+    room.players[id].lastInputAt = Date.now();
+    room.players[id].afkWarned = false;
   }
+
   room.startTime = Date.now();
   room.mode = room.settings.mode || 'classic';
-  room.timeLeft = room.mode === 'time' ? (Number(room.settings.matchDuration) || MODES.time.duration) : 0;
+  const baseDur = Number(room.settings.matchDuration) || MODES.time.duration;
+  room.totalDuration = baseDur;
+  room.timeLeft = room.mode === 'time' ? baseDur : 0;
   resetPositions(room);
+  recordEvent(room, 'kickoff', 'Матч начался! 1-й тайм');
 
   room.loop = setInterval(() => {
     const now = Date.now();
@@ -627,13 +747,62 @@ function startRoomLoop(roomId) {
     if (dt > 0.05) dt = 0.05;
     if (dt <= 0) return;
 
+    // 5. Halftime break pause
+    if (room.halftimePausedUntil && now < room.halftimePausedUntil) {
+      return;
+    } else if (room.halftimePausedUntil && now >= room.halftimePausedUntil) {
+      room.halftimePausedUntil = 0;
+      io.to(roomId).emit('halftimeResume', { half: 2, sidesSwapped: room.sidesSwapped });
+      recordEvent(room, 'half', 'Начался 2-й тайм! Команды поменялись воротами');
+    }
+
+    // 24. AFK Detection
+    for (const [id, p] of Object.entries(room.players)) {
+      if (p.team === 'spec') continue;
+      const idleMs = now - (p.lastInputAt || now);
+      if (idleMs > 18000 && !p.afkWarned) {
+        p.afkWarned = true;
+        io.to(id).emit('afkWarning', { secondsLeft: 12 });
+      } else if (idleMs > 30000) {
+        p.team = 'spec';
+        recordEvent(room, 'afk', `${p.name} переведён в зрители за бездействие (AFK)`);
+        emitRoomState(room);
+      }
+    }
+
     const bd = arenaBounds(room);
     const iceFriction = room.settings.arena === 'ice' ? 0.996 : FRICTION;
     const weatherFriction = WEATHERS[room.settings.weather] || 1;
 
+    // 2. & 3. Timed match + Halftime + Extra Time + Golden Goal
     if (room.mode === 'time') {
       room.timeLeft -= dt;
-      if (room.timeLeft <= 0) { finishMatch(room, roomId); return; }
+      if (room.half === 1 && !room.inOvertime && room.timeLeft <= room.totalDuration * 0.5) {
+        room.half = 2;
+        room.sidesSwapped = true;
+        resetPositions(room);
+        room.halftimePausedUntil = now + 5000;
+        io.to(roomId).emit('halftime', {
+          duration: 5,
+          score: room.score,
+          stats: room.stats,
+          players: getPlayersPublic(room),
+          sidesSwapped: true
+        });
+        return;
+      }
+      if (room.timeLeft <= 0) {
+        if (room.score.red === room.score.blue && !room.inOvertime && room.settings.extraTime !== false) {
+          room.inOvertime = true;
+          room.timeLeft = 45;
+          resetPositions(room);
+          io.to(roomId).emit('overtimeStarted', { duration: 45, goldenGoal: true });
+          recordEvent(room, 'overtime', 'Ничья! Назначено дополнительное время (Правило золотого гола)');
+        } else {
+          finishMatch(room, roomId);
+          return;
+        }
+      }
     }
 
     for (const id in room.players) {
@@ -658,10 +827,7 @@ function startRoomLoop(roomId) {
       } else if ((p.dashTimer || 0) <= 0) {
         const sp = Math.hypot(p.vx, p.vy);
         const maxSp = PLAYER_MAX * staminaFactor;
-        if (sp > maxSp) {
-          p.vx = p.vx / sp * maxSp;
-          p.vy = p.vy / sp * maxSp;
-        }
+        if (sp > maxSp) { p.vx = p.vx / sp * maxSp; p.vy = p.vy / sp * maxSp; }
       }
 
       p.x += p.vx * dt; p.y += p.vy * dt;
@@ -674,6 +840,18 @@ function startRoomLoop(roomId) {
     }
 
     const activeIds = Object.keys(room.players).filter(id => room.players[id].team !== 'spec');
+
+    // Record heatmap samples every ~0.5s
+    room.heatmapTick++;
+    if (room.heatmapTick >= 30) {
+      room.heatmapTick = 0;
+      for (const id of activeIds) {
+        const p = room.players[id];
+        if (p.heatmap.length < 180) {
+          p.heatmap.push({ x: Math.round(p.x), y: Math.round(p.y) });
+        }
+      }
+    }
 
     for (let i = 0; i < activeIds.length; i++) {
       for (let j = i + 1; j < activeIds.length; j++) {
@@ -708,7 +886,7 @@ function startRoomLoop(roomId) {
     for (const id of activeIds) boundRect(room.players[id], PLAYER_R);
 
     room.stats.totalTicks++;
-    const goalHalfH = (bd.h * 0.3) / 2;
+    const goalHalfW = (bd.w * 0.32) / 2;
 
     for (let bi = 0; bi < room.balls.length; bi++) {
       const b = room.balls[bi];
@@ -755,7 +933,6 @@ function startRoomLoop(roomId) {
         b.vx *= bf; b.vy *= bf;
         b.x += b.vx * dt; b.y += b.vy * dt;
 
-        // Guard against NaN / out-of-arena escape
         if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) {
           b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.z = 0; b.vz = 0;
         }
@@ -774,8 +951,8 @@ function startRoomLoop(roomId) {
             const d = Math.hypot(b.x - p.x, b.y - p.y);
             if (d <= PLAYER_R + BALL_R + 5) {
               if (p.pickupLock > 0) {
-                const nx = d > 0.001 ? (b.x - p.x) / d : 1;
-                const ny = d > 0.001 ? (b.y - p.y) / d : 0;
+                const nx = d > 0.001 ? (b.x - p.x) / d : 0;
+                const ny = d > 0.001 ? (b.y - p.y) / d : 1;
                 b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
                 b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
                 b.vx = p.vx + nx * 160;
@@ -786,6 +963,7 @@ function startRoomLoop(roomId) {
               }
               if (b.lastTeam && b.lastTeam !== p.team && Math.hypot(b.vx, b.vy) > 420 && p.stats) {
                 p.stats.saves++;
+                recordEvent(room, 'save', `Сейв: ${p.name}`, p.team);
               }
               b.ownerId = id;
               b.lastTeam = p.team;
@@ -796,21 +974,22 @@ function startRoomLoop(roomId) {
         }
       }
 
-      if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
-      if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
+      // Side touchline bounce on X
+      if (b.x < bd.minX + BALL_R) { b.x = bd.minX + BALL_R; b.vx = Math.abs(b.vx) * BOUNCE; }
+      if (b.x > bd.maxX - BALL_R) { b.x = bd.maxX - BALL_R; b.vx = -Math.abs(b.vx) * BOUNCE; }
 
-      // Check goal BEFORE boundary clamp on X
-      const scoringTeam = now >= (room.goalLockUntil || 0) ? checkGoalSegment(b, bd.minX, bd.maxX, goalHalfH) : null;
+      // 1. Check goal plane crossing on Y BEFORE end-line bounce so there is zero collision conflict
+      const scoringTeam = now >= (room.goalLockUntil || 0) ? checkGoalSegment(b, bd.minY, bd.maxY, goalHalfW, room.sidesSwapped) : null;
 
       if (!scoringTeam) {
-        if (b.x < bd.minX + BALL_R) { b.x = bd.minX + BALL_R; b.vx = Math.abs(b.vx) * BOUNCE; }
-        if (b.x > bd.maxX - BALL_R) { b.x = bd.maxX - BALL_R; b.vx = -Math.abs(b.vx) * BOUNCE; }
+        if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
+        if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
         continue;
       }
 
-      // Clamp ball inside goal net visually for replay/effect without escaping arena
-      if (scoringTeam === 'blue') b.x = Math.max(bd.minX - GOAL_DEPTH + BALL_R, b.x);
-      if (scoringTeam === 'red') b.x = Math.min(bd.maxX + GOAL_DEPTH - BALL_R, b.x);
+      // Clamp ball inside top/bottom goal net without bouncing back out
+      if (b.y < 0) b.y = Math.max(bd.minY - GOAL_DEPTH + BALL_R, b.y);
+      else b.y = Math.min(bd.maxY + GOAL_DEPTH - BALL_R, b.y);
 
       b.scored = true;
       room.goalLockUntil = now + 700;
@@ -840,6 +1019,8 @@ function startRoomLoop(roomId) {
                        room.combo[scoringTeam] === 3 ? 'ХЕТ-ТРИК!' :
                        room.combo[scoringTeam] === 2 ? 'ДУБЛЬ!' : '';
 
+      recordEvent(room, 'goal', `ГОЛ! ${scorerName}${assistName ? ` (пас: ${assistName})` : ''}`, scoringTeam);
+
       io.to(roomId).emit('goal', {
         goalId: `${room.matchUid}_${room.goalSeq}`,
         team: scoringTeam,
@@ -857,14 +1038,21 @@ function startRoomLoop(roomId) {
       const otherTeam = scoringTeam === 'red' ? 'blue' : 'red';
       room.combo[otherTeam] = 0;
 
-      const goalLimit = MODES[room.mode]?.goals || 5;
+      // 3. Golden goal rule in golden mode or overtime
+      if (room.mode === 'golden' || room.inOvertime) {
+        finishMatch(room, roomId);
+        return;
+      }
+
+      const goalLimit = Number(room.settings.goalLimit) || MODES[room.mode]?.goals || 5;
       if (room.score[scoringTeam] >= goalLimit) { finishMatch(room, roomId); return; }
       resetPositions(room);
       break;
     }
 
     room.syncTick++;
-    const every = Math.max(1, Math.round(SERVER_TICK / SYNC_RATE));
+    const syncRate = room.settings.dataSaver ? 20 : SYNC_RATE;
+    const every = Math.max(1, Math.round(SERVER_TICK / syncRate));
     if (room.syncTick >= every) {
       room.syncTick = 0;
       const snap = {
@@ -874,6 +1062,9 @@ function startRoomLoop(roomId) {
         })),
         players: {},
         timeLeft: room.timeLeft,
+        half: room.half,
+        inOvertime: room.inOvertime,
+        sidesSwapped: room.sidesSwapped,
         stats: room.stats,
         playerStats: Object.fromEntries(activeIds.map(id => [id, room.players[id].stats]))
       };
@@ -891,7 +1082,7 @@ function startRoomLoop(roomId) {
   }, 1000 / SERVER_TICK);
 }
 
-function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchId }) {
+function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchId, isOffline = false }) {
   const claimKey = `${acc.id}:${matchId}`;
   if (db.claimedMatchAwards[claimKey]) {
     return { alreadyClaimed: true, earned: 0, breakdown: [], account: publicAccountPayload(acc) };
@@ -900,28 +1091,33 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
 
   let earned = 0;
   const breakdown = [];
+  const mult = isOffline ? 0.5 : 1.0;
 
   if (outcome === 'win') {
-    earned += 100;
+    const pts = Math.round(100 * mult);
+    earned += pts;
     acc.wins += 1;
     acc.daily.wins = (acc.daily.wins || 0) + 1;
     acc.season.quests.wins = (acc.season.quests.wins || 0) + 1;
-    breakdown.push('Победа: +100');
+    breakdown.push(`Победа: +${pts}`);
   } else if (outcome === 'draw') {
-    earned += 50;
-    breakdown.push('Ничья: +50');
+    const pts = Math.round(50 * mult);
+    earned += pts;
+    breakdown.push(`Ничья: +${pts}`);
   } else {
-    earned += 25;
-    breakdown.push('Участие: +25');
+    const pts = Math.round(25 * mult);
+    earned += pts;
+    breakdown.push(`Участие: +${pts}`);
   }
 
-  const g = Math.max(0, Math.min(30, parseInt(goals, 10) || 0));
-  const a = Math.max(0, Math.min(30, parseInt(assists, 10) || 0));
-  const s = Math.max(0, Math.min(100, parseInt(shots, 10) || 0));
-  const ps = Math.max(0, Math.min(100, parseInt(passes, 10) || 0));
+  const maxGoals = isOffline ? 5 : 25;
+  const g = Math.max(0, Math.min(maxGoals, parseInt(goals, 10) || 0));
+  const a = Math.max(0, Math.min(maxGoals, parseInt(assists, 10) || 0));
+  const s = Math.max(0, Math.min(60, parseInt(shots, 10) || 0));
+  const ps = Math.max(0, Math.min(80, parseInt(passes, 10) || 0));
 
   if (g > 0) {
-    const gCoins = g * 20;
+    const gCoins = Math.round(g * 20 * mult);
     earned += gCoins;
     acc.goals += g;
     acc.daily.goals = (acc.daily.goals || 0) + g;
@@ -929,7 +1125,7 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
     breakdown.push(`Голы (${g}): +${gCoins}`);
   }
   if (a > 0) {
-    const aCoins = a * 15;
+    const aCoins = Math.round(a * 15 * mult);
     earned += aCoins;
     acc.assists += a;
     breakdown.push(`Ассисты (${a}): +${aCoins}`);
@@ -940,8 +1136,7 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
   acc.passes += ps;
   acc.season.quests.passes = (acc.season.quests.passes || 0) + ps;
 
-  // Season XP progression
-  const xpGain = (outcome === 'win' ? 120 : (outcome === 'draw' ? 70 : 45)) + g * 25 + ps * 3;
+  const xpGain = Math.round(((outcome === 'win' ? 120 : (outcome === 'draw' ? 70 : 45)) + g * 25 + ps * 3) * mult);
   acc.season.xp = (acc.season.xp || 0) + xpGain;
 
   if (!acc.daily.firstMatchDone) {
@@ -971,9 +1166,13 @@ function finishMatch(room, roomId) {
   if (room.score.red > room.score.blue) winner = 'red';
   else if (room.score.blue > room.score.red) winner = 'blue';
 
-  const allPlayers = Object.values(room.players);
+  const mvp = computeMVP(room);
+  const heatmaps = {};
+  for (const [id, p] of Object.entries(room.players)) {
+    if (p.team !== 'spec') heatmaps[id] = { name: p.name, team: p.team, points: p.heatmap || [] };
+  }
 
-  // Record recent opponents & award rewards
+  const allPlayers = Object.values(room.players);
   const rewardsBySocket = {};
   for (const [sid, p] of Object.entries(room.players)) {
     p.ready = false;
@@ -982,12 +1181,7 @@ function finishMatch(room, roomId) {
       const others = allPlayers.filter(op => op.accountId && op.accountId !== p.accountId && op.team !== 'spec');
       for (const op of others) {
         acc.recentOpponents = (acc.recentOpponents || []).filter(item => item.id !== op.accountId);
-        acc.recentOpponents.unshift({
-          id: op.accountId,
-          nick: op.name,
-          team: op.team,
-          ts: Date.now()
-        });
+        acc.recentOpponents.unshift({ id: op.accountId, nick: op.name, team: op.team, ts: Date.now() });
       }
       acc.recentOpponents = (acc.recentOpponents || []).slice(0, 12);
 
@@ -998,7 +1192,8 @@ function finishMatch(room, roomId) {
         assists: p.stats?.assists || 0,
         shots: p.stats?.shots || 0,
         passes: p.stats?.passes || 0,
-        matchId: room.matchUid || `${roomId}_${Date.now()}`
+        matchId: room.matchUid || `${roomId}_${Date.now()}`,
+        isOffline: false
       });
     }
   }
@@ -1008,13 +1203,16 @@ function finishMatch(room, roomId) {
     winner,
     red: room.score.red,
     blue: room.score.blue,
+    mvp,
+    heatmaps,
+    events: room.events || [],
     stats: room.stats,
     players: getPlayersPublic(room),
     rewardsBySocket
   });
 }
 
-// ==== MATCHMAKING (PUBLIC AUTO-MATCH ONLY, NEVER PULLS PRIVATE ROOMS) ====
+// ==== MATCHMAKING & PUBLIC ROOMS LIST ====
 function findOpenPublicRoom(teamSize = 2) {
   for (const [, room] of Object.entries(rooms)) {
     if (room.isPrivate) continue;
@@ -1028,6 +1226,7 @@ function findOpenPublicRoom(teamSize = 2) {
 }
 
 function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, isLandscape, preferredTeam = null }) {
+  leaveCurrentRoom(socket);
   const safeSkin = acc.ownedSkins.includes(skin) ? skin : 'plain';
   const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
   if (room.isPrivate && !room.settings.ballSkin) room.settings.ballSkin = safeBallSkin;
@@ -1051,9 +1250,7 @@ function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ball
   socket.join(room.id);
   socket.roomId = room.id;
 
-  if (room.isPrivate) {
-    autoBalanceRoom(room);
-  }
+  if (room.isPrivate) autoBalanceRoom(room);
   emitRoomState(room);
   pushFriendsUpdate(acc.id);
 }
@@ -1062,9 +1259,10 @@ function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ball
 io.on('connection', (socket) => {
   socket.on('pingCheck', (ts, cb) => { if (typeof cb === 'function') cb(ts); });
 
-  socket.on('authAccount', ({ accountId, nick }, cb) => {
-    const acc = getOrCreateAccount(accountId, nick);
-    socket.accountId = acc.id;
+  // 3. Server-verified authentication with signed session token
+  socket.on('authAccount', ({ accountId, authToken, nick }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, accountId, nick);
+    const signedToken = signAccountToken(acc.id);
     let dailyBonus = 0;
     if (!acc.daily.loginClaimed) {
       acc.daily.loginClaimed = true;
@@ -1074,7 +1272,6 @@ io.on('connection', (socket) => {
       scheduleSaveDB();
     }
 
-    // Check if player can automatically rejoin an active match after disconnect
     let rejoinInfo = null;
     for (const [key, sess] of Object.entries(disconnectedSessions)) {
       if (sess.accountId === acc.id && rooms[sess.roomId] && rooms[sess.roomId].started) {
@@ -1086,51 +1283,78 @@ io.on('connection', (socket) => {
     if (typeof cb === 'function') {
       cb({
         ok: true,
+        authToken: signedToken,
         account: publicAccountPayload(acc),
         friendsData: buildFriendsPayload(acc),
         dailyBonus,
         rejoinInfo
       });
     }
-    for (const fid of (acc.friends || [])) {
-      pushFriendsUpdate(fid);
-    }
+    for (const fid of (acc.friends || [])) pushFriendsUpdate(fid);
   });
 
-  // Automatic reconnect into active match
-  socket.on('rejoinMatch', ({ accountId, isLandscape }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
-    socket.accountId = acc.id;
-    let foundKey = null;
-    let sess = null;
+  // 4. Server-issued ticket before starting offline match so rewards cannot be forged
+  socket.on('startOfflineSession', ({ authToken, modeType }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
+    const ticketId = 'TKT_' + crypto.randomBytes(8).toString('hex');
+    db.offlineTickets[ticketId] = {
+      accountId: acc.id,
+      modeType: String(modeType || 'training'),
+      startedAt: Date.now(),
+      used: false
+    };
+    if (typeof cb === 'function') cb({ ok: true, ticketId });
+  });
+
+  socket.on('claimOfflineMatch', ({ authToken, ticketId, outcome, goals, assists, shots, passes }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
+    const ticket = db.offlineTickets[String(ticketId || '')];
+    if (!ticket || ticket.accountId !== acc.id || ticket.used) {
+      return cb && cb({ ok: false, error: 'Недействительный или повторный токен офлайн-матча' });
+    }
+    const elapsedSec = (Date.now() - ticket.startedAt) / 1000;
+    if (elapsedSec < 8) {
+      return cb && cb({ ok: false, error: 'Матч слишком короткий для начисления наград' });
+    }
+    ticket.used = true;
+    const safeOutcome = ['win', 'draw', 'loss'].includes(outcome) ? outcome : 'loss';
+    // Cap goals proportionally to match duration (max 1 goal per 6 seconds)
+    const maxPlausibleGoals = Math.min(5, Math.floor(elapsedSec / 6));
+    const safeGoals = Math.max(0, Math.min(maxPlausibleGoals, parseInt(goals, 10) || 0));
+    const safeAssists = Math.max(0, Math.min(safeGoals, parseInt(assists, 10) || 0));
+    const res = awardMatchRewards(acc, {
+      outcome: safeOutcome,
+      goals: safeGoals,
+      assists: safeAssists,
+      shots,
+      passes,
+      matchId: ticketId,
+      isOffline: true
+    });
+    if (cb) cb({ ok: true, ...res });
+  });
+
+  socket.on('rejoinMatch', ({ authToken, isLandscape }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
+    let foundKey = null, sess = null;
     for (const [k, s] of Object.entries(disconnectedSessions)) {
-      if (s.accountId === acc.id && rooms[s.roomId]) {
-        foundKey = k;
-        sess = s;
-        break;
-      }
+      if (s.accountId === acc.id && rooms[s.roomId]) { foundKey = k; sess = s; break; }
     }
-    if (!sess || !rooms[sess.roomId]) {
-      return cb && cb({ ok: false, error: 'Активный матч не найден или уже завершён' });
-    }
+    if (!sess || !rooms[sess.roomId]) return cb && cb({ ok: false, error: 'Активный матч не найден' });
     clearTimeout(sess.timeout);
     delete disconnectedSessions[foundKey];
 
     const room = rooms[sess.roomId];
     const snap = sess.playerSnapshot;
     room.players[socket.id] = createPlayerState({
-      accountId: acc.id,
-      name: acc.nick,
-      color: snap.color || '#ff3366',
-      number: snap.number || 7,
+      accountId: acc.id, name: acc.nick, color: snap.color || '#ff3366', number: snap.number || 7,
       skin: acc.ownedSkins.includes(snap.skin) ? snap.skin : 'plain',
-      celebration: snap.celebration || 'jump',
-      team: snap.team || assignTeams(room)
+      celebration: snap.celebration || 'jump', team: snap.team || assignTeams(room)
     });
     room.players[socket.id].x = snap.x || 0;
     room.players[socket.id].y = snap.y || 0;
     room.players[socket.id].stamina = snap.stamina ?? 100;
-    room.players[socket.id].stats = snap.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
+    room.players[socket.id].stats = snap.stats || { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, passes: 0, passesCompleted: 0, tackles: 0, saves: 0 };
     room.players[socket.id].ready = isLandscape !== undefined ? Boolean(isLandscape) : true;
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(room.id);
@@ -1138,22 +1362,58 @@ io.on('connection', (socket) => {
 
     emitRoomState(room);
     pushFriendsUpdate(acc.id);
+    if (typeof cb === 'function') cb({ ok: true, started: Boolean(room.started), roomId: room.id, players: getPlayersPublic(room), settings: room.settings });
+  });
+
+  // 6. & 7. Public Rooms Browser & Spectator Join
+  socket.on('listPublicRooms', (_, cb) => {
+    const list = Object.values(rooms)
+      .filter(r => !r.isPrivate)
+      .map(r => {
+        const players = Object.values(r.players);
+        const activeCount = players.filter(p => p.team !== 'spec').length;
+        const specCount = players.filter(p => p.team === 'spec').length;
+        return {
+          roomId: r.id,
+          roomName: r.roomName || `Арена ${r.id.slice(-4)}`,
+          mode: r.settings.mode,
+          arena: r.settings.arena,
+          teamSize: r.settings.teamSize || 2,
+          activeCount,
+          maxActive: (r.settings.teamSize || 2) * 2,
+          specCount,
+          started: Boolean(r.started),
+          score: r.score || { red: 0, blue: 0 }
+        };
+      });
+    if (typeof cb === 'function') cb({ ok: true, rooms: list });
+  });
+
+  socket.on('joinRoomById', ({ authToken, roomId, asSpectator, name, color, number, skin, ballSkin, celebration, isLandscape }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId, name);
+    const room = rooms[String(roomId || '')];
+    if (!room || room.isPrivate) return cb && cb({ ok: false, error: 'Публичная комната не найдена' });
+    if (Object.keys(room.players).length >= MAX_PLAYERS) return cb && cb({ ok: false, error: 'Комната заполнена' });
+
+    const preferredTeam = (asSpectator || room.started) ? 'spec' : null;
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, isLandscape, preferredTeam });
+
     if (typeof cb === 'function') {
       cb({
         ok: true,
-        started: Boolean(room.started),
         roomId: room.id,
+        started: Boolean(room.started),
         players: getPlayersPublic(room),
+        host: room.host,
         settings: room.settings
       });
     }
+    if (!room.started) triggerMatchStartSequence(room);
   });
 
-  // Public auto-matchmaking (no code needed)
-  socket.on('findMatch', ({ accountId, name, color, number, skin, ballSkin, celebration, isLandscape, teamSize }, cb) => {
+  socket.on('findMatch', ({ authToken, name, color, number, skin, ballSkin, celebration, isLandscape, teamSize }, cb) => {
     if (!allowRate('find_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
-    const acc = getOrCreateAccount(accountId, name);
-    socket.accountId = acc.id;
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId, name);
     const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
     const sz = [1, 2].includes(parseInt(teamSize, 10)) ? parseInt(teamSize, 10) : 2;
 
@@ -1161,135 +1421,75 @@ io.on('connection', (socket) => {
     if (!room) {
       const id = genRoomId('PUB_');
       room = {
-        id,
-        isPrivate: false,
-        inviteCode: null,
-        players: {}, inputs: {}, lastSeq: {},
-        lastToucher: null, prevToucher: null,
-        loop: null, loopRunning: false, host: socket.id,
-        started: false, countingDown: false, countdownTimer: null,
-        settings: {
-          arena: 'classic', mode: 'classic', matchDuration: 120,
-          weather: 'clear', ballSkin: safeBallSkin, teamSize: sz,
-          arenaColor: '#24662c'
-        }
+        id, roomName: `Матч ${sz}v${sz} #${id.slice(-4)}`, isPrivate: false, inviteCode: null,
+        players: {}, inputs: {}, lastSeq: {}, lastToucher: null, prevToucher: null,
+        loop: null, loopRunning: false, host: socket.id, started: false, countingDown: false, countdownTimer: null,
+        settings: { arena: 'classic', mode: 'classic', matchDuration: 120, goalLimit: 5, extraTime: true, weather: 'clear', ballSkin: safeBallSkin, teamSize: sz, arenaColor: '#24662c' }
       };
       rooms[id] = room;
     }
 
     attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, isLandscape });
-    if (typeof cb === 'function') {
-      cb({ ok: true, roomId: room.id, isPrivate: false, inviteCode: null, players: getPlayersPublic(room), host: room.host, settings: room.settings });
-    }
+    if (typeof cb === 'function') cb({ ok: true, roomId: room.id, isPrivate: false, inviteCode: null, players: getPlayersPublic(room), host: room.host, settings: room.settings });
     triggerMatchStartSequence(room);
   });
 
-  // Create private room with unique code & invite link
-  socket.on('createPrivateRoom', ({ accountId, name, color, number, skin, ballSkin, celebration, isLandscape, teamSize }, cb) => {
+  socket.on('createPrivateRoom', ({ authToken, name, color, number, skin, ballSkin, celebration, isLandscape, teamSize }, cb) => {
     if (!allowRate('priv_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
-    const acc = getOrCreateAccount(accountId, name);
-    socket.accountId = acc.id;
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId, name);
     const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
     const sz = [1, 2].includes(parseInt(teamSize, 10)) ? parseInt(teamSize, 10) : 2;
 
     const id = genRoomId('PRV_');
     const code = genInviteCode();
     const room = {
-      id,
-      isPrivate: true,
-      inviteCode: code,
-      allowedAccounts: new Set([acc.id]),
-      players: {}, inputs: {}, lastSeq: {},
-      lastToucher: null, prevToucher: null,
-      loop: null, loopRunning: false, host: socket.id,
-      started: false, countingDown: false, countdownTimer: null,
-      settings: {
-        arena: 'classic', mode: 'classic', matchDuration: 120,
-        weather: 'clear', ballSkin: safeBallSkin, teamSize: sz,
-        arenaColor: '#24662c'
-      }
+      id, roomName: `Приватная #${code}`, isPrivate: true, inviteCode: code, allowedAccounts: new Set([acc.id]),
+      players: {}, inputs: {}, lastSeq: {}, lastToucher: null, prevToucher: null,
+      loop: null, loopRunning: false, host: socket.id, started: false, countingDown: false, countdownTimer: null,
+      settings: { arena: 'classic', mode: 'classic', matchDuration: 120, goalLimit: 5, extraTime: true, weather: 'clear', ballSkin: safeBallSkin, teamSize: sz, arenaColor: '#24662c' }
     };
     rooms[id] = room;
     privateRooms[code] = id;
 
     attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, isLandscape, preferredTeam: 'red' });
-    if (typeof cb === 'function') {
-      cb({
-        ok: true,
-        roomId: room.id,
-        isPrivate: true,
-        inviteCode: code,
-        players: getPlayersPublic(room),
-        host: room.host,
-        settings: room.settings
-      });
-    }
+    if (typeof cb === 'function') cb({ ok: true, roomId: room.id, isPrivate: true, inviteCode: code, players: getPlayersPublic(room), host: room.host, settings: room.settings });
   });
 
-  // Join private room by code or roomId (with authorization / friend / invite check)
-  socket.on('joinPrivateRoom', ({ accountId, codeOrRoomId, name, color, number, skin, ballSkin, celebration, isLandscape }, cb) => {
+  // 6. Private room join by code/invite
+  socket.on('joinPrivateRoom', ({ authToken, codeOrRoomId, name, color, number, skin, ballSkin, celebration, isLandscape }, cb) => {
     if (!allowRate('join_priv_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
-    const acc = getOrCreateAccount(accountId, name);
-    socket.accountId = acc.id;
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId, name);
 
     const raw = String(codeOrRoomId || '').trim().toUpperCase();
     const targetRoomId = privateRooms[raw] || (rooms[raw] && rooms[raw].isPrivate ? raw : null);
-    if (!targetRoomId || !rooms[targetRoomId]) {
-      return cb && cb({ ok: false, error: 'Приватная комната не найдена или код недействителен' });
-    }
+    if (!targetRoomId || !rooms[targetRoomId]) return cb && cb({ ok: false, error: 'Приватная комната не найдена или код недействителен' });
     const room = rooms[targetRoomId];
-    if (room.started) {
-      return cb && cb({ ok: false, error: 'Матч уже идёт' });
-    }
-    if (Object.keys(room.players).length >= MAX_PLAYERS) {
-      return cb && cb({ ok: false, error: 'Комната заполнена' });
-    }
+    if (room.started) return cb && cb({ ok: false, error: 'Матч уже идёт' });
+    if (Object.keys(room.players).length >= MAX_PLAYERS) return cb && cb({ ok: false, error: 'Комната заполнена' });
 
-    // Verify access: host/allowed account, friend of host, or invited user
     const hostPlayer = room.players[room.host];
     const hostAccId = hostPlayer ? hostPlayer.accountId : null;
     const hostAcc = hostAccId ? db.accounts[hostAccId] : null;
-    const isAllowed = room.allowedAccounts?.has(acc.id) ||
-                      acc.id === hostAccId ||
-                      (hostAcc && Array.isArray(hostAcc.friends) && hostAcc.friends.includes(acc.id));
-
-    if (!isAllowed) {
-      return cb && cb({ ok: false, error: 'Доступ запрещён: требуется приглашение или дружба с создателем комнаты' });
-    }
     if (hostAcc && Array.isArray(hostAcc.blocked) && hostAcc.blocked.includes(acc.id)) {
       return cb && cb({ ok: false, error: 'Вы заблокированы создателем комнаты' });
     }
 
     room.allowedAccounts.add(acc.id);
     attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, isLandscape });
-    if (typeof cb === 'function') {
-      cb({
-        ok: true,
-        roomId: room.id,
-        isPrivate: true,
-        inviteCode: room.inviteCode,
-        players: getPlayersPublic(room),
-        host: room.host,
-        settings: room.settings
-      });
-    }
+    if (typeof cb === 'function') cb({ ok: true, roomId: room.id, isPrivate: true, inviteCode: room.inviteCode, players: getPlayersPublic(room), host: room.host, settings: room.settings });
     triggerMatchStartSequence(room);
   });
 
   // ==== FRIENDS, SEARCH, BLOCKS, REPORTS & INVITES ====
-  socket.on('searchPlayers', ({ accountId, query }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+  socket.on('searchPlayers', ({ authToken, query }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const q = String(query || '').trim().toLowerCase();
     const list = Object.values(db.accounts)
       .filter(u => u.id !== acc.id && !(acc.blocked || []).includes(u.id))
       .filter(u => !q || u.id.toLowerCase().includes(q) || (u.nick || '').toLowerCase().includes(q))
       .slice(0, 15)
       .map(u => ({
-        id: u.id,
-        nick: u.nick,
-        wins: u.wins,
-        goals: u.goals,
-        status: getUserStatus(u.id),
+        id: u.id, nick: u.nick, wins: u.wins, goals: u.goals, status: getUserStatus(u.id),
         isFriend: (acc.friends || []).includes(u.id),
         outgoing: (acc.friendRequestsOut || []).includes(u.id),
         incoming: (acc.friendRequestsIn || []).includes(u.id)
@@ -1297,144 +1497,121 @@ io.on('connection', (socket) => {
     if (typeof cb === 'function') cb({ ok: true, results: list });
   });
 
-  socket.on('sendFriendRequest', ({ accountId, targetId }, cb) => {
+  socket.on('sendFriendRequest', ({ authToken, targetId }, cb) => {
     if (!allowRate('fr_' + socket.id, 5, 8)) return cb && cb({ ok: false, error: 'Слишком много запросов' });
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const cleanTarget = String(targetId || '').trim();
     if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный ID игрока' });
     const targetAcc = db.accounts[cleanTarget];
     if (!targetAcc) return cb && cb({ ok: false, error: 'Игрок не найден' });
-    if ((acc.blocked || []).includes(cleanTarget) || (targetAcc.blocked || []).includes(acc.id)) {
-      return cb && cb({ ok: false, error: 'Добавление недоступно' });
-    }
-    if ((acc.friends || []).includes(cleanTarget)) {
-      return cb && cb({ ok: false, error: 'Уже в списке друзей' });
-    }
-    if ((acc.friendRequestsOut || []).includes(cleanTarget)) {
-      return cb && cb({ ok: false, error: 'Запрос уже отправлен' });
-    }
+    if ((acc.blocked || []).includes(cleanTarget) || (targetAcc.blocked || []).includes(acc.id)) return cb && cb({ ok: false, error: 'Добавление недоступно' });
+    if ((acc.friends || []).includes(cleanTarget)) return cb && cb({ ok: false, error: 'Уже в списке друзей' });
+    if ((acc.friendRequestsOut || []).includes(cleanTarget)) return cb && cb({ ok: false, error: 'Запрос уже отправлен' });
 
-    // If target already sent request to us, accept automatically
     if ((acc.friendRequestsIn || []).includes(cleanTarget)) {
       acc.friendRequestsIn = acc.friendRequestsIn.filter(x => x !== cleanTarget);
       targetAcc.friendRequestsOut = (targetAcc.friendRequestsOut || []).filter(x => x !== acc.id);
       if (!acc.friends.includes(cleanTarget)) acc.friends.push(cleanTarget);
       if (!targetAcc.friends.includes(acc.id)) targetAcc.friends.push(acc.id);
-      scheduleSaveDB();
-      pushFriendsUpdate(acc.id);
-      pushFriendsUpdate(cleanTarget);
+      scheduleSaveDB(); pushFriendsUpdate(acc.id); pushFriendsUpdate(cleanTarget);
       return cb && cb({ ok: true, accepted: true, friendsData: buildFriendsPayload(acc) });
     }
 
     acc.friendRequestsOut.push(cleanTarget);
     if (!targetAcc.friendRequestsIn.includes(acc.id)) targetAcc.friendRequestsIn.push(acc.id);
-    scheduleSaveDB();
-    pushFriendsUpdate(acc.id);
-    pushFriendsUpdate(cleanTarget);
-    for (const s of getSocketsByAccountId(cleanTarget)) {
-      s.emit('friendRequestReceived', { fromId: acc.id, fromNick: acc.nick });
-    }
+    scheduleSaveDB(); pushFriendsUpdate(acc.id); pushFriendsUpdate(cleanTarget);
+    for (const s of getSocketsByAccountId(cleanTarget)) s.emit('friendRequestReceived', { fromId: acc.id, fromNick: acc.nick });
     if (typeof cb === 'function') cb({ ok: true, friendsData: buildFriendsPayload(acc) });
   });
 
-  socket.on('respondFriendRequest', ({ accountId, fromId, accept }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+  socket.on('respondFriendRequest', ({ authToken, fromId, accept }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const cleanFrom = String(fromId || '').trim();
     const otherAcc = db.accounts[cleanFrom];
     acc.friendRequestsIn = (acc.friendRequestsIn || []).filter(x => x !== cleanFrom);
-    if (otherAcc) {
-      otherAcc.friendRequestsOut = (otherAcc.friendRequestsOut || []).filter(x => x !== acc.id);
-    }
+    if (otherAcc) otherAcc.friendRequestsOut = (otherAcc.friendRequestsOut || []).filter(x => x !== acc.id);
     if (accept && otherAcc) {
       if (!acc.friends.includes(cleanFrom)) acc.friends.push(cleanFrom);
       if (!otherAcc.friends.includes(acc.id)) otherAcc.friends.push(acc.id);
     }
-    scheduleSaveDB();
-    pushFriendsUpdate(acc.id);
+    scheduleSaveDB(); pushFriendsUpdate(acc.id);
     if (otherAcc) pushFriendsUpdate(cleanFrom);
     if (typeof cb === 'function') cb({ ok: true, friendsData: buildFriendsPayload(acc) });
   });
 
-  socket.on('removeFriend', ({ accountId, friendId }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+  socket.on('removeFriend', ({ authToken, friendId }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const cleanFriend = String(friendId || '').trim();
     acc.friends = (acc.friends || []).filter(x => x !== cleanFriend);
     const otherAcc = db.accounts[cleanFriend];
-    if (otherAcc) {
-      otherAcc.friends = (otherAcc.friends || []).filter(x => x !== acc.id);
-    }
-    scheduleSaveDB();
-    pushFriendsUpdate(acc.id);
+    if (otherAcc) otherAcc.friends = (otherAcc.friends || []).filter(x => x !== acc.id);
+    scheduleSaveDB(); pushFriendsUpdate(acc.id);
     if (otherAcc) pushFriendsUpdate(cleanFriend);
     if (typeof cb === 'function') cb({ ok: true, friendsData: buildFriendsPayload(acc) });
   });
 
-  socket.on('blockPlayer', ({ accountId, targetId }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+  socket.on('blockPlayer', ({ authToken, targetId }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const cleanTarget = String(targetId || '').trim();
     if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный ID' });
     if (!(acc.blocked || []).includes(cleanTarget)) acc.blocked.push(cleanTarget);
     acc.friends = (acc.friends || []).filter(x => x !== cleanTarget);
-    acc.friendRequestsIn = (acc.friendRequestsIn || []).filter(x => x !== cleanTarget);
-    acc.friendRequestsOut = (acc.friendRequestsOut || []).filter(x => x !== cleanTarget);
-    const otherAcc = db.accounts[cleanTarget];
-    if (otherAcc) otherAcc.friends = (otherAcc.friends || []).filter(x => x !== acc.id);
-    scheduleSaveDB();
-    pushFriendsUpdate(acc.id);
-    if (otherAcc) pushFriendsUpdate(cleanTarget);
+    scheduleSaveDB(); pushFriendsUpdate(acc.id);
     if (typeof cb === 'function') cb({ ok: true, account: publicAccountPayload(acc), friendsData: buildFriendsPayload(acc) });
   });
 
-  socket.on('unblockPlayer', ({ accountId, targetId }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+  socket.on('unblockPlayer', ({ authToken, targetId }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const cleanTarget = String(targetId || '').trim();
     acc.blocked = (acc.blocked || []).filter(x => x !== cleanTarget);
     scheduleSaveDB();
     if (typeof cb === 'function') cb({ ok: true, account: publicAccountPayload(acc) });
   });
 
-  socket.on('reportPlayer', ({ accountId, targetId, reason }, cb) => {
+  // 23. Player Report System
+  socket.on('reportPlayer', ({ authToken, targetId, reason, category }, cb) => {
     if (!allowRate('rep_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком много жалоб' });
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const cleanTarget = String(targetId || '').trim();
-    const cleanReason = sanitize(reason || 'Неспортивное поведение', 'Жалоба').slice(0, 80);
+    const cleanReason = sanitize(reason || 'Неспортивное поведение', 'Жалоба').slice(0, 100);
+    const cleanCat = sanitize(category || 'conduct', 'conduct').slice(0, 24);
     if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный игрок' });
-    logAdminAction(acc.id, 'PLAYER_REPORT', { reporter: acc.nick, targetId: cleanTarget, reason: cleanReason });
-    if (typeof cb === 'function') cb({ ok: true });
+    const reportEntry = {
+      id: 'REP_' + crypto.randomBytes(4).toString('hex').toUpperCase(),
+      ts: new Date().toISOString(),
+      reporterId: acc.id,
+      reporterNick: acc.nick,
+      targetId: cleanTarget,
+      targetNick: db.accounts[cleanTarget]?.nick || cleanTarget,
+      category: cleanCat,
+      reason: cleanReason,
+      status: 'open'
+    };
+    db.reports.push(reportEntry);
+    if (db.reports.length > 300) db.reports.shift();
+    logAdminAction(acc.id, 'PLAYER_REPORT', reportEntry);
+    if (typeof cb === 'function') cb({ ok: true, reportId: reportEntry.id });
   });
 
-  // Invite friend to private room (creates room automatically if not in one)
-  socket.on('inviteFriendToMatch', ({ accountId, friendId, name, color, number, skin, ballSkin, celebration, isLandscape }, cb) => {
+  // 6. CRITICAL FIX: Invite friend even if inviter is already in another room (public or finished private)
+  socket.on('inviteFriendToMatch', ({ authToken, friendId, name, color, number, skin, ballSkin, celebration, isLandscape }, cb) => {
     if (!allowRate('inv_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Слишком много приглашений' });
-    const acc = getOrCreateAccount(accountId || socket.accountId, name);
-    socket.accountId = acc.id;
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId, name);
     const cleanFriend = String(friendId || '').trim();
-    if (!(acc.friends || []).includes(cleanFriend)) {
-      return cb && cb({ ok: false, error: 'Игрок не в вашем списке друзей' });
-    }
     const targetSockets = getSocketsByAccountId(cleanFriend);
-    if (!targetSockets.length) {
-      return cb && cb({ ok: false, error: 'Друг сейчас не в сети' });
-    }
+    if (!targetSockets.length) return cb && cb({ ok: false, error: 'Игрок сейчас не в сети' });
 
     let room = (socket.roomId && rooms[socket.roomId]) ? rooms[socket.roomId] : null;
-    if (!room || !room.isPrivate) {
+    // If inviter is in a public room or a started match, move them cleanly into a fresh private room
+    if (!room || !room.isPrivate || room.started) {
       const id = genRoomId('PRV_');
       const code = genInviteCode();
       room = {
-        id,
-        isPrivate: true,
-        inviteCode: code,
+        id, roomName: `Приватная #${code}`, isPrivate: true, inviteCode: code,
         allowedAccounts: new Set([acc.id, cleanFriend]),
-        players: {}, inputs: {}, lastSeq: {},
-        lastToucher: null, prevToucher: null,
-        loop: null, loopRunning: false, host: socket.id,
-        started: false, countingDown: false, countdownTimer: null,
-        settings: {
-          arena: 'classic', mode: 'classic', matchDuration: 120,
-          weather: 'clear', ballSkin: acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic',
-          teamSize: 2, arenaColor: '#24662c'
-        }
+        players: {}, inputs: {}, lastSeq: {}, lastToucher: null, prevToucher: null,
+        loop: null, loopRunning: false, host: socket.id, started: false, countingDown: false, countdownTimer: null,
+        settings: { arena: 'classic', mode: 'classic', matchDuration: 120, goalLimit: 5, extraTime: true, weather: 'clear', ballSkin: acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic', teamSize: 2, arenaColor: '#24662c' }
       };
       rooms[id] = room;
       privateRooms[code] = id;
@@ -1446,34 +1623,16 @@ io.on('connection', (socket) => {
 
     const inviteId = 'INV_' + crypto.randomBytes(5).toString('hex');
     matchInvites[inviteId] = {
-      id: inviteId,
-      fromAccountId: acc.id,
-      fromNick: acc.nick,
-      toAccountId: cleanFriend,
-      roomId: room.id,
-      inviteCode: room.inviteCode,
-      createdAt: Date.now()
+      id: inviteId, fromAccountId: acc.id, fromNick: acc.nick, toAccountId: cleanFriend,
+      roomId: room.id, inviteCode: room.inviteCode, createdAt: Date.now()
     };
 
     for (const ts of targetSockets) {
-      ts.emit('matchInviteReceived', {
-        inviteId,
-        fromId: acc.id,
-        fromNick: acc.nick,
-        roomId: room.id,
-        inviteCode: room.inviteCode
-      });
+      ts.emit('matchInviteReceived', { inviteId, fromId: acc.id, fromNick: acc.nick, roomId: room.id, inviteCode: room.inviteCode });
     }
 
     if (typeof cb === 'function') {
-      cb({
-        ok: true,
-        roomId: room.id,
-        inviteCode: room.inviteCode,
-        players: getPlayersPublic(room),
-        host: room.host,
-        settings: room.settings
-      });
+      cb({ ok: true, roomId: room.id, inviteCode: room.inviteCode, players: getPlayersPublic(room), host: room.host, settings: room.settings });
     }
   });
 
@@ -1481,25 +1640,19 @@ io.on('connection', (socket) => {
     const inv = matchInvites[inviteId];
     if (!inv) return cb && cb({ ok: false, error: 'Приглашение устарело' });
     delete matchInvites[inviteId];
-    const fromSockets = getSocketsByAccountId(inv.fromAccountId);
-    for (const fs of fromSockets) {
+    for (const fs of getSocketsByAccountId(inv.fromAccountId)) {
       fs.emit('matchInviteResponse', { inviteId, accepted: Boolean(accept), byAccountId: socket.accountId });
     }
     if (typeof cb === 'function') cb({ ok: true, invite: inv });
   });
 
-  // Season pass & quests
-  socket.on('claimSeasonReward', ({ accountId, kind, key }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+  socket.on('claimSeasonReward', ({ authToken, kind, key }, cb) => {
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     if (kind === 'tier') {
       const tier = parseInt(key, 10);
       const reqXp = tier * 200;
-      if (!tier || tier < 1 || tier > 10 || (acc.season.xp || 0) < reqXp) {
-        return cb && cb({ ok: false, error: 'Недостаточно сезонного опыта' });
-      }
-      if (acc.season.claimedTiers.includes(tier)) {
-        return cb && cb({ ok: false, error: 'Награда уже получена' });
-      }
+      if (!tier || tier < 1 || tier > 10 || (acc.season.xp || 0) < reqXp) return cb && cb({ ok: false, error: 'Недостаточно сезонного опыта' });
+      if (acc.season.claimedTiers.includes(tier)) return cb && cb({ ok: false, error: 'Награда уже получена' });
       acc.season.claimedTiers.push(tier);
       const rewardCoins = tier * 100;
       acc.coins += rewardCoins;
@@ -1511,9 +1664,7 @@ io.on('connection', (socket) => {
       const rewards = { goals: 120, passes: 90, wins: 150 };
       if (!targets[qKey]) return cb && cb({ ok: false, error: 'Задание не найдено' });
       if (acc.season.quests.claimed[qKey]) return cb && cb({ ok: false, error: 'Задание уже выполнено' });
-      if ((acc.season.quests[qKey] || 0) < targets[qKey]) {
-        return cb && cb({ ok: false, error: 'Задание ещё не выполнено' });
-      }
+      if ((acc.season.quests[qKey] || 0) < targets[qKey]) return cb && cb({ ok: false, error: 'Задание ещё не выполнено' });
       acc.season.quests.claimed[qKey] = true;
       const rewardCoins = rewards[qKey];
       acc.coins += rewardCoins;
@@ -1536,17 +1687,12 @@ io.on('connection', (socket) => {
 
     if (!newReady && room.countingDown && !room.started) {
       room.countingDown = false;
-      if (room.countdownTimer) {
-        clearTimeout(room.countdownTimer);
-        room.countdownTimer = null;
-      }
+      if (room.countdownTimer) { clearTimeout(room.countdownTimer); room.countdownTimer = null; }
       io.to(roomId).emit('countdownCancelled', { reason: `${p.name} повернул экран вертикально` });
     }
 
     emitRoomState(room);
-    if (newReady && !room.started) {
-      triggerMatchStartSequence(room);
-    }
+    if (newReady && !room.started) triggerMatchStartSequence(room);
   });
 
   socket.on('switchTeam', (targetTeam) => {
@@ -1565,6 +1711,7 @@ io.on('connection', (socket) => {
     triggerMatchStartSequence(room);
   });
 
+  // 8. Extended private & lobby match settings
   socket.on('updateSettings', (settings) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms[roomId] || rooms[roomId].started) return;
@@ -1576,12 +1723,14 @@ io.on('connection', (socket) => {
       const dur = parseInt(settings.matchDuration, 10);
       if ([60, 120, 180, 300].includes(dur)) room.settings.matchDuration = dur;
     }
+    if (settings.goalLimit) {
+      const gl = parseInt(settings.goalLimit, 10);
+      if ([1, 3, 5, 7, 10].includes(gl)) room.settings.goalLimit = gl;
+    }
+    if (settings.extraTime !== undefined) room.settings.extraTime = Boolean(settings.extraTime);
     if (settings.teamSize) {
       const sz = parseInt(settings.teamSize, 10);
-      if ([1, 2].includes(sz)) {
-        room.settings.teamSize = sz;
-        autoBalanceRoom(room);
-      }
+      if ([1, 2].includes(sz)) { room.settings.teamSize = sz; autoBalanceRoom(room); }
     }
     if (settings.weather && WEATHERS[settings.weather]) room.settings.weather = settings.weather;
     if (settings.ballSkin && BALL_SKIN_CATALOG[settings.ballSkin]) room.settings.ballSkin = settings.ballSkin;
@@ -1593,18 +1742,22 @@ io.on('connection', (socket) => {
     if (!data || typeof data !== 'object') return;
     const roomId = socket.roomId;
     if (!roomId || !rooms[roomId]) return;
-    const inp = rooms[roomId].inputs[socket.id];
-    if (!inp) return;
+    const room = rooms[roomId];
+    const inp = room.inputs[socket.id];
+    const p = room.players[socket.id];
+    if (!inp || !p) return;
     let x = Number(data.x), y = Number(data.y);
     if (!Number.isFinite(x)) x = 0;
     if (!Number.isFinite(y)) y = 0;
     const l = Math.hypot(x, y);
     if (l < 0.05) { x = 0; y = 0; }
-    else if (l > 1) { x /= l; y /= l; }
-    inp.x = x; inp.y = y;
-    if (data.seq !== undefined && Number.isFinite(Number(data.seq))) {
-      rooms[roomId].lastSeq[socket.id] = Number(data.seq);
+    else {
+      if (l > 1) { x /= l; y /= l; }
+      p.lastInputAt = Date.now();
+      p.afkWarned = false;
     }
+    inp.x = x; inp.y = y;
+    if (data.seq !== undefined && Number.isFinite(Number(data.seq))) room.lastSeq[socket.id] = Number(data.seq);
   });
 
   socket.on('action', (payload) => {
@@ -1616,6 +1769,8 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     const p = room.players[socket.id];
     if (!p || p.team === 'spec') return;
+    p.lastInputAt = Date.now();
+    p.afkWarned = false;
 
     if (type === 'dash') {
       if (p.dashCd > 0 || (p.stamina ?? 100) < 20) return;
@@ -1628,6 +1783,17 @@ io.on('connection', (socket) => {
       const ny = l > 0.05 ? inp.y / l : Math.sin(p.facing || 0);
       p.vx = nx * DASH_IMPULSE;
       p.vy = ny * DASH_IMPULSE;
+    } else if (type === 'gkDive') {
+      // 13. Extra Goalkeeper Dive control
+      if (p.dashCd > 0 || (p.stamina ?? 100) < 18) return;
+      p.stamina = Math.max(0, (p.stamina ?? 100) - 20);
+      p.dashCd = 1.4;
+      p.dashTimer = 0.34;
+      const inp = room.inputs[socket.id] || { x: 0, y: 0 };
+      const lateral = Math.abs(inp.x) > 0.1 ? Math.sign(inp.x) : (Math.cos(p.facing || 0) >= 0 ? 1 : -1);
+      p.vx = lateral * 720;
+      p.vy *= 0.25;
+      io.to(room.id).emit('ballImpact', { x: p.x, y: p.y, power: 0.7, kind: 'dive' });
     } else if (type === 'tackle') {
       if (p.tackleCd > 0) return;
       p.tackleCd = TACKLE_CD;
@@ -1690,9 +1856,9 @@ io.on('connection', (socket) => {
   });
 
   // ==== ECONOMY, SHOP & PROMOCODES ====
-  socket.on('buySkin', ({ accountId, category, skinId }, cb) => {
+  socket.on('buySkin', ({ authToken, category, skinId }, cb) => {
     if (!allowRate('shop_' + socket.id, 5, 8)) return cb && cb({ ok: false, error: 'Слишком много запросов' });
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     if (category === 'player') {
       const item = PLAYER_SKIN_CATALOG[skinId];
       if (!item) return cb && cb({ ok: false, error: 'Скин не найден' });
@@ -1715,18 +1881,9 @@ io.on('connection', (socket) => {
     if (cb) cb({ ok: false, error: 'Неверная категория' });
   });
 
-  socket.on('claimOfflineMatch', ({ accountId, matchId, outcome, goals, assists, shots, passes }, cb) => {
-    const acc = getOrCreateAccount(accountId || socket.accountId);
-    const safeMatchId = String(matchId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
-    if (!safeMatchId) return cb && cb({ ok: false, error: 'Неверный ID матча' });
-    const safeOutcome = ['win', 'draw', 'loss'].includes(outcome) ? outcome : 'loss';
-    const res = awardMatchRewards(acc, { outcome: safeOutcome, goals, assists, shots, passes, matchId: safeMatchId });
-    if (cb) cb({ ok: true, ...res });
-  });
-
-  socket.on('redeemPromo', ({ accountId, code }, cb) => {
+  socket.on('redeemPromo', ({ authToken, code }, cb) => {
     if (!allowRate('promo_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Подождите перед следующей попыткой' });
-    const acc = getOrCreateAccount(accountId || socket.accountId);
+    const acc = getAuthenticatedAccount(socket, authToken, socket.accountId);
     const rawCode = String(code || '').trim();
     if (!rawCode) return cb && cb({ ok: false, error: 'Введите промокод' });
 
@@ -1734,25 +1891,14 @@ io.on('connection', (socket) => {
     if (hash === ADMIN_SECRET_HASH) {
       adminSessions.add(socket.id);
       logAdminAction(acc.id, 'ADMIN_LOGIN', { nick: acc.nick, socketId: socket.id });
-      return cb && cb({
-        ok: true,
-        isAdmin: true,
-        message: 'Доступ к панели администратора открыт',
-        account: publicAccountPayload(acc)
-      });
+      return cb && cb({ ok: true, isAdmin: true, message: 'Доступ к панели администратора открыт', account: publicAccountPayload(acc) });
     }
 
     const upperCode = rawCode.toUpperCase();
     const promo = db.promos[upperCode];
-    if (!promo || !promo.active) {
-      return cb && cb({ ok: false, error: 'Промокод не существует или неактивен' });
-    }
-    if (acc.usedPromos.includes(upperCode)) {
-      return cb && cb({ ok: false, error: 'Вы уже активировали этот промокод' });
-    }
-    if (promo.usedCount >= promo.maxUses) {
-      return cb && cb({ ok: false, error: 'Лимит активаций промокода исчерпан' });
-    }
+    if (!promo || !promo.active) return cb && cb({ ok: false, error: 'Промокод не существует или неактивен' });
+    if (acc.usedPromos.includes(upperCode)) return cb && cb({ ok: false, error: 'Вы уже активировали этот промокод' });
+    if (promo.usedCount >= promo.maxUses) return cb && cb({ ok: false, error: 'Лимит активаций промокода исчерпан' });
 
     acc.usedPromos.push(upperCode);
     promo.usedCount += 1;
@@ -1795,7 +1941,7 @@ io.on('connection', (socket) => {
     if (cb) cb({ ok: true, isAdmin: false, rewardText, account: publicAccountPayload(acc) });
   });
 
-  // ==== ADMIN ENDPOINTS ====
+  // ==== ADMIN ENDPOINTS (WITH REPORTS MODERATION) ====
   function requireAdmin(cb) {
     if (!adminSessions.has(socket.id)) {
       if (typeof cb === 'function') cb({ ok: false, error: 'Доступ запрещён' });
@@ -1808,8 +1954,20 @@ io.on('connection', (socket) => {
     if (!requireAdmin(cb)) return;
     const playersList = Object.values(db.accounts).map(a => publicAccountPayload(a));
     if (typeof cb === 'function') {
-      cb({ ok: true, players: playersList, promos: db.promos, logs: db.adminLogs.slice(-50).reverse() });
+      cb({ ok: true, players: playersList, promos: db.promos, reports: db.reports.slice(-50).reverse(), logs: db.adminLogs.slice(-50).reverse() });
     }
+  });
+
+  socket.on('adminResolveReport', ({ reportId, resolution }, cb) => {
+    if (!requireAdmin(cb)) return;
+    const rep = db.reports.find(r => r.id === reportId);
+    if (!rep) return cb && cb({ ok: false, error: 'Жалоба не найдена' });
+    rep.status = resolution === 'dismiss' ? 'dismissed' : 'resolved';
+    rep.resolvedBy = socket.accountId;
+    rep.resolvedAt = new Date().toISOString();
+    logAdminAction(socket.accountId, 'REPORT_RESOLVE', { reportId, status: rep.status });
+    scheduleSaveDB();
+    if (typeof cb === 'function') cb({ ok: true, reports: db.reports.slice(-50).reverse() });
   });
 
   socket.on('adminUpdatePlayer', ({ targetId, action, amount, skinCategory, skinId }, cb) => {
@@ -1836,10 +1994,7 @@ io.on('connection', (socket) => {
 
     logAdminAction(socket.accountId, `PLAYER_${action.toUpperCase()}`, { targetId, nick: acc.nick, amount: val, skinCategory, skinId });
     scheduleSaveDB();
-
-    for (const s of getSocketsByAccountId(targetId)) {
-      s.emit('accountSynced', publicAccountPayload(acc));
-    }
+    for (const s of getSocketsByAccountId(targetId)) s.emit('accountSynced', publicAccountPayload(acc));
     if (typeof cb === 'function') cb({ ok: true, player: publicAccountPayload(acc), logs: db.adminLogs.slice(-50).reverse() });
   });
 
@@ -1872,17 +2027,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     adminSessions.delete(socket.id);
-    rateBuckets.delete('find_' + socket.id);
-    rateBuckets.delete('priv_' + socket.id);
-    rateBuckets.delete('join_priv_' + socket.id);
-    rateBuckets.delete('fr_' + socket.id);
-    rateBuckets.delete('rep_' + socket.id);
-    rateBuckets.delete('inv_' + socket.id);
-    rateBuckets.delete('act_' + socket.id);
-    rateBuckets.delete('em_' + socket.id);
-    rateBuckets.delete('ch_' + socket.id);
-    rateBuckets.delete('shop_' + socket.id);
-    rateBuckets.delete('promo_' + socket.id);
+    ['find_', 'priv_', 'join_priv_', 'fr_', 'rep_', 'inv_', 'act_', 'em_', 'ch_', 'shop_', 'promo_'].forEach(p => rateBuckets.delete(p + socket.id));
 
     const accId = socket.accountId;
     const roomId = socket.roomId;
@@ -1891,51 +2036,23 @@ io.on('connection', (socket) => {
       const room = rooms[roomId];
       const departingPlayer = room.players[socket.id];
 
-      // Save reconnect snapshot if match is active
       if (departingPlayer && accId && room.started && departingPlayer.team !== 'spec') {
         const key = `${accId}:${roomId}`;
         if (disconnectedSessions[key]) clearTimeout(disconnectedSessions[key].timeout);
-        const timer = setTimeout(() => {
-          delete disconnectedSessions[key];
-        }, 60000);
-        disconnectedSessions[key] = {
-          roomId,
-          accountId: accId,
-          playerSnapshot: { ...departingPlayer },
-          disconnectedAt: Date.now(),
-          timeout: timer
-        };
+        const timer = setTimeout(() => { delete disconnectedSessions[key]; }, 60000);
+        disconnectedSessions[key] = { roomId, accountId: accId, playerSnapshot: { ...departingPlayer }, disconnectedAt: Date.now(), timeout: timer };
       }
 
-      for (const b of (room.balls || [])) { if (b.ownerId === socket.id) b.ownerId = null; }
-      delete room.players[socket.id];
-      delete room.inputs[socket.id];
-      delete room.lastSeq[socket.id];
-
-      if (Object.keys(room.players).length === 0) {
-        if (room.loop) clearInterval(room.loop);
-        if (room.countdownTimer) clearTimeout(room.countdownTimer);
-        if (room.inviteCode && privateRooms[room.inviteCode] === roomId) {
-          delete privateRooms[room.inviteCode];
-        }
-        delete rooms[roomId];
-      } else {
-        if (room.host === socket.id) room.host = Object.keys(room.players)[0];
-        if (room.isPrivate) autoBalanceRoom(room);
-        emitRoomState(room);
-        io.to(roomId).emit('playerLeft', socket.id);
-      }
+      leaveCurrentRoom(socket);
     }
 
     if (accId && db.accounts[accId]) {
       const acc = db.accounts[accId];
       acc.lastSeen = Date.now();
-      for (const fid of (acc.friends || [])) {
-        pushFriendsUpdate(fid);
-      }
+      for (const fid of (acc.friends || [])) pushFriendsUpdate(fid);
     }
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Ball Brawl Pro v10 on port ' + PORT));
+server.listen(PORT, () => console.log('Ball Brawl Pro v11 on port ' + PORT));
