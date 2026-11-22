@@ -9,10 +9,10 @@ const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingI
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PLAYER_R = 30, BALL_R = 20;
-const PLAYER_MAX = 205, DASH_IMPULSE = 380;
-const PLAYER_ACCEL = 680;
+const PLAYER_MAX = 320, DASH_IMPULSE = 540;
+const PLAYER_ACCEL = 980;
 const FRICTION = 0.982, BOUNCE = 0.72;
-const KICK_MAX = 820, PASS_MAX = 520;
+const KICK_MAX = 860, PASS_MAX = 560;
 const DASH_CD = 2.0, TACKLE_CD = 2.2;
 const DRIBBLE_DIST = PLAYER_R + BALL_R + 4;
 const SERVER_TICK = 60, SYNC_RATE = 30, MAX_PLAYERS = 6;
@@ -450,7 +450,7 @@ io.on('connection', (socket) => {
       if (p.tackleCd > 0) return;
       p.tackleCd = TACKLE_CD;
       const fx = Math.cos(p.facing || 0), fy = Math.sin(p.facing || 0);
-      p.vx += fx * 260; p.vy += fy * 260;
+      p.vx += fx * 280; p.vy += fy * 280;
 
       for (const b of room.balls) {
         const d = Math.hypot(b.x - p.x, b.y - p.y);
@@ -469,7 +469,7 @@ io.on('connection', (socket) => {
       for (const b of room.balls) {
         if (b.ownerId === socket.id) { bestB = b; break; }
         const d = Math.hypot(b.x - p.x, b.y - p.y);
-        const range = (type === 'kick' ? 75 : 85) + PLAYER_R + BALL_R;
+        const range = (type === 'kick' ? 85 : 95) + PLAYER_R + BALL_R;
         if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
       }
       if (!bestB) return;
