@@ -60,12 +60,12 @@ function resetPositions(room) {
   reds.forEach((id, i) => {
     const p = room.players[id];
     const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 80;
-    p.x = bd.minX + 150; p.y = spread; p.vx = 0; p.vy = 0; p.facing = 0; p.pickupLock = 0;
+    p.x = bd.minX + 150; p.y = spread; p.vx = 0; p.vy = 0; p.facing = 0; p.pickupLock = 0; p.dashTimer = 0;
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
     const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 80;
-    p.x = bd.maxX - 150; p.y = spread; p.vx = 0; p.vy = 0; p.facing = Math.PI; p.pickupLock = 0;
+    p.x = bd.maxX - 150; p.y = spread; p.vx = 0; p.vy = 0; p.facing = Math.PI; p.pickupLock = 0; p.dashTimer = 0;
   });
 
   room.balls = [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }];
@@ -158,15 +158,17 @@ function startRoomLoop(code) {
       const moving = Math.hypot(inp.x, inp.y) > 0.08;
       if (moving) p.facing = Math.atan2(inp.y, inp.x);
 
-      p.vx += inp.x * PLAYER_ACCEL * dt;
-      p.vy += inp.y * PLAYER_ACCEL * dt;
+      if ((p.dashTimer || 0) <= 0) {
+        p.vx += inp.x * PLAYER_ACCEL * dt;
+        p.vy += inp.y * PLAYER_ACCEL * dt;
+      }
 
-      if (!moving) {
+      if (!moving && (p.dashTimer || 0) <= 0) {
         const f = Math.pow(iceFriction * weatherFriction, dt * 60);
         p.vx *= f; p.vy *= f;
-      } else {
+      } else if ((p.dashTimer || 0) <= 0) {
         const sp = Math.hypot(p.vx, p.vy);
-        if (sp > PLAYER_MAX && p.dashTimer <= 0) {
+        if (sp > PLAYER_MAX) {
           p.vx = p.vx / sp * PLAYER_MAX;
           p.vy = p.vy / sp * PLAYER_MAX;
         }
@@ -181,7 +183,6 @@ function startRoomLoop(code) {
 
     const activeIds = Object.keys(room.players).filter(id => room.players[id].team !== 'spec');
 
-    // Столкновения игроков друг с другом (мяч НЕ выбивается без кнопки отбора)
     for (let i = 0; i < activeIds.length; i++) {
       for (let j = i + 1; j < activeIds.length; j++) {
         const a = room.players[activeIds[i]], c = room.players[activeIds[j]];
@@ -196,7 +197,6 @@ function startRoomLoop(code) {
       }
     }
 
-    // Движение мячей и жёсткое прикрепление спереди при дриблинге
     for (const b of room.balls) {
       if (b.ownerId && room.players[b.ownerId] && room.players[b.ownerId].team !== 'spec') {
         const owner = room.players[b.ownerId];
@@ -223,7 +223,6 @@ function startRoomLoop(code) {
         b.vx *= bf; b.vy *= bf;
         b.x += b.vx * dt; b.y += b.vy * dt;
 
-        // Подбор свободного мяча при касании
         for (const id of activeIds) {
           const p = room.players[id];
           if (p.pickupLock > 0) continue;
@@ -249,7 +248,6 @@ function startRoomLoop(code) {
     for (let bi = 0; bi < room.balls.length; bi++) {
       const b = room.balls[bi];
 
-      // Обычный отскок от верхней и нижней боковых линий (без аутов и угловых)
       if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
       if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
 
