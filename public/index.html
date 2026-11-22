@@ -849,6 +849,7 @@ function resetOfflinePositions() {
   if (p1) { p1.x = -(arena.w / 2) + 150; p1.y = 0; p1.vx = 0; p1.vy = 0; p1.facing = 0; p1.pickupLock = 0; p1.dashTimer = 0; }
   if (p2) { p2.x = (arena.w / 2) - 150; p2.y = 0; p2.vx = 0; p2.vy = 0; p2.facing = Math.PI; p2.pickupLock = 0; p2.dashTimer = 0; }
   S.balls = [{ x: S.modeType === 'penalty' ? -(arena.w / 2) + 340 : 0, y: 0, vx: 0, vy: 0, rot: 0, curve: 0, powerGlow: 0, ownerId: null }];
+  S.lastToucherId = null;
   S.ballTrail = [];
 }
 
@@ -1172,7 +1173,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
         const dist = Math.hypot(b.x - bot.x, b.y - bot.y);
         let tx, ty;
         if (b.ownerId === 'bot') {
-          // Бот ведёт мяч к воротам игрока (minX) и бьёт при сближении
           tx = minX + 180;
           ty = (S.trainBot.diff === 'hard') ? ((bot.y >= 0 ? -1 : 1) * arena.h * 0.12) : 0;
           if (Math.abs(bot.x - minX) < 520) {
@@ -1182,7 +1182,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
           }
         } else if (dist < 480) {
           tx = b.x; ty = b.y;
-          // Если мяч у игрока, бот нажимает отбор
           if (b.ownerId === 'p1' && dist < 85 && S.trainBot.tackle && bot.tackleCd <= 0) {
             doOfflineAction('bot', 'tackle', 0, 0, 1);
           }
@@ -1202,7 +1201,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
   const activePlayers = [p1, p2, bot].filter(Boolean);
   const playerMap = { p1, p2, bot };
 
-  // Столкновение игроков (мяч не выбивается без кнопки Отбор)
   if (activePlayers.length >= 2) {
     for (let i = 0; i < activePlayers.length; i++) {
       for (let j = i + 1; j < activePlayers.length; j++) {
@@ -1215,7 +1213,7 @@ function stepOfflinePhysics(dt, rawDt, now) {
     }
   }
 
-  // Жёсткий дриблинг спереди игрока
+  // Дриблинг: мяч жёстко спереди игрока (по направлению взгляда/движения) и не теряется при движении
   for (const b of S.balls) {
     if (b.ownerId && playerMap[b.ownerId]) {
       const owner = playerMap[b.ownerId];
@@ -1239,11 +1237,12 @@ function stepOfflinePhysics(dt, rawDt, now) {
       const bf = Math.pow(0.988, dt * 60);
       b.vx *= bf; b.vy *= bf; b.x += b.vx * dt; b.y += b.vy * dt;
 
+      // Подбор только при физическом касании (без магнита)
       for (const key of ['p1', 'p2', 'bot']) {
         const p = playerMap[key];
         if (!p || p.pickupLock > 0) continue;
         const d = Math.hypot(b.x - p.x, b.y - p.y);
-        if (d <= PLAYER_R + BALL_R + 6) {
+        if (d <= PLAYER_R + BALL_R + 4) {
           b.ownerId = key;
           S.lastToucherId = key;
           break;
@@ -1256,7 +1255,7 @@ function stepOfflinePhysics(dt, rawDt, now) {
 
   const goalHalfH = (arena.h * 0.3) / 2;
   for (const b of S.balls) {
-    // Отскок от боковых границ поля (аут и угловой убраны)
+    // Отскок от боковых границ как от стены (без аутов и угловых)
     if (b.y < minY + BALL_R) { b.y = minY + BALL_R; b.vy = Math.abs(b.vy) * 0.72; }
     if (b.y > maxY - BALL_R) { b.y = maxY - BALL_R; b.vy = -Math.abs(b.vy) * 0.72; }
 
@@ -1265,18 +1264,21 @@ function stepOfflinePhysics(dt, rawDt, now) {
     const escapedRight = b.x > maxX + BALL_R * 0.4 && inGoalY;
 
     if (escapedLeft || escapedRight) {
+      // Гол засчитывается команде противника ворот (или последней касавшейся команде)
+      const toucher = S.lastToucherId ? playerMap[S.lastToucherId] : null;
       const scoringTeam = escapedLeft ? 'blue' : 'red';
-      S.scores[scoringTeam]++; updateScoreUI(); playSfx('goal'); vibrate(80); addShake(10); saveCurrentReplay();
+      const creditTeam = (toucher && toucher.team) ? toucher.team : scoringTeam;
+      S.scores[creditTeam]++; updateScoreUI(); playSfx('goal'); vibrate(80); addShake(10); saveCurrentReplay();
 
       if (S.modeType === 'penalty') {
-        S.penaltyShots++; showGoal(scoringTeam === 'red' ? 'ГОЛ!' : 'МИМО!');
+        S.penaltyShots++; showGoal(creditTeam === 'red' ? 'ГОЛ!' : 'МИМО!');
         if (S.penaltyShots >= 5) {
           if (S.scores.red > S.penaltyRecord) { S.penaltyRecord = S.scores.red; saveAll(); }
           showResult(S.scores.red >= 3 ? 'red' : 'blue', S.scores.red, S.penaltyShots - S.scores.red); return;
         }
       } else {
-        showGoal(scoringTeam === 'red' ? 'ГОЛ КРАСНЫХ!' : 'ГОЛ СИНИХ!');
-        if (S.modeType === 'local2p' && S.scores[scoringTeam] >= 5) { showResult(scoringTeam, S.scores.red, S.scores.blue); return; }
+        showGoal(creditTeam === 'red' ? 'ГОЛ КРАСНЫХ!' : 'ГОЛ СИНИХ!');
+        if (S.modeType === 'local2p' && S.scores[creditTeam] >= 5) { showResult(creditTeam, S.scores.red, S.scores.blue); return; }
       }
       resetOfflinePositions(); break;
     } else {
@@ -1309,8 +1311,10 @@ function moveOfflinePlayer(p, inp, iceF, dt, customMax = PLAYER_MAX) {
   const moving = Math.hypot(inp.x, inp.y) > 0.08;
   if (moving) p.facing = Math.atan2(inp.y, inp.x);
 
-  p.vx += inp.x * 680 * dt; p.vy += inp.y * 680 * dt;
-  if (!moving) {
+  if ((p.dashTimer || 0) <= 0) {
+    p.vx += inp.x * 680 * dt; p.vy += inp.y * 680 * dt;
+  }
+  if (!moving && (p.dashTimer || 0) <= 0) {
     const fr = Math.pow(iceF, dt * 60); p.vx *= fr; p.vy *= fr;
   } else if ((p.dashTimer || 0) <= 0) {
     const sp = Math.hypot(p.vx, p.vy);
@@ -1592,8 +1596,10 @@ function gameLoop(now) {
       const moving = Math.hypot(S.myInput.x, S.myInput.y) > 0.08;
       if (moving) me.facing = Math.atan2(S.myInput.y, S.myInput.x);
 
-      me.vx += S.myInput.x * 680 * rawDt; me.vy += S.myInput.y * 680 * rawDt;
-      if (!moving) {
+      if ((me.dashTimer || 0) <= 0) {
+        me.vx += S.myInput.x * 680 * rawDt; me.vy += S.myInput.y * 680 * rawDt;
+      }
+      if (!moving && (me.dashTimer || 0) <= 0) {
         const f = Math.pow(0.982, rawDt * 60); me.vx *= f; me.vy *= f;
       } else if ((me.dashTimer || 0) <= 0) {
         const sp = Math.hypot(me.vx, me.vy);
@@ -1633,4 +1639,4 @@ function toast(msg) {
 })();
 </script>
 </body>
-</html>
+  </html>
