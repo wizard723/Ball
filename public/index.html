@@ -5,119 +5,143 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#0a0a0f">
+<meta name="theme-color" content="#090c14">
 <title>Ball Brawl v7</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
-html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#fff;font-family:-apple-system,Roboto,sans-serif;position:fixed;overscroll-behavior:none}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#090c14;color:#f3f6ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overscroll-behavior:none}
+body.in-match{position:fixed;inset:0;touch-action:none}
 canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .hidden{display:none!important}
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;padding:12px;background:radial-gradient(circle at 50% 20%,#1a1a2e 0%,#0a0a0f 70%);z-index:10;overflow-y:auto;-webkit-overflow-scrolling:touch}
-.title{font-size:26px;font-weight:900;letter-spacing:2px;margin:6px 0;text-align:center;line-height:1}
-.title span{color:#ff3366;text-shadow:0 0 20px rgba(255,51,102,.6)}
-.lbl{width:100%;max-width:420px;font-size:11px;color:#888;margin:6px 0 3px;text-transform:uppercase;letter-spacing:1px}
-.inp,select{width:100%;max-width:420px;padding:9px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;font-size:14px;outline:none;-webkit-user-select:text;user-select:text;font-family:inherit}
-.inp:focus,select:focus{border-color:#ff3366}
-.inp.code{text-transform:uppercase;letter-spacing:4px;text-align:center;font-weight:bold}
-.colors{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:420px}
-.swatch{width:30px;height:30px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s}
-.swatch.active{border-color:#fff;transform:scale(1.15)}
-.skins{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:420px}
-.skin{min-width:56px;height:30px;border-radius:8px;border:2px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:11px;cursor:pointer;padding:0 6px}
-.skin.active{border-color:#ff3366;background:rgba(255,51,102,.2)}
-.btn{width:100%;max-width:420px;padding:10px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:transform .1s;margin-top:7px}
+
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;padding:18px 14px 48px;background:radial-gradient(circle at 50% 0%,rgba(255,51,102,.18) 0%,rgba(51,170,255,.08) 38%,#090c14 78%);z-index:10;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+.card{width:100%;max-width:440px;background:rgba(18,23,36,.86);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:14px;margin-top:10px;box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.title{font-size:28px;font-weight:950;letter-spacing:1.5px;margin:4px 0 2px;text-align:center;line-height:1.05}
+.title span{background:linear-gradient(135deg,#ff3366,#ff8833);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.subtitle{font-size:12px;color:#8f9bb8;text-align:center;margin-bottom:8px}
+.lbl{font-size:11px;font-weight:700;color:#9aa7c7;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.9px}
+.lbl:first-child{margin-top:0}
+.inp,select{width:100%;padding:10px 12px;background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.14);border-radius:12px;color:#fff;font-size:14px;outline:none;-webkit-user-select:text;user-select:text;font-family:inherit;transition:border-color .15s,background .15s}
+.inp:focus,select:focus{border-color:#ff3366;background:rgba(255,255,255,.1)}
+.inp.code{text-transform:uppercase;letter-spacing:5px;text-align:center;font-weight:800;font-size:16px}
+.colors{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.swatch{width:32px;height:32px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.swatch.active{border-color:#fff;transform:scale(1.14);box-shadow:0 0 14px rgba(255,255,255,.45)}
+.skins{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.skin{min-width:62px;height:34px;border-radius:10px;border:1.5px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:12px;font-weight:700;cursor:pointer;padding:0 8px;transition:.15s}
+.skin.active{border-color:#ff3366;background:rgba(255,51,102,.22);box-shadow:0 0 12px rgba(255,51,102,.25)}
+
+.menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.btn{width:100%;padding:11px 12px;border:none;border-radius:12px;font-size:13px;font-weight:800;cursor:pointer;transition:transform .1s,filter .15s;display:flex;align-items:center;justify-content:center;gap:6px}
 .btn:active{transform:scale(.97)}
-.btn.primary{background:linear-gradient(135deg,#ff3366,#ff6633);color:#fff}
-.btn.green{background:linear-gradient(135deg,#34c759,#28a745);color:#fff}
-.btn.blue{background:linear-gradient(135deg,#33aaff,#0077cc);color:#fff}
-.btn.gray{background:rgba(255,255,255,.12);color:#fff}
-.btn.danger{background:rgba(255,60,60,.25);color:#ff6666}
-.err{color:#ff5566;margin-top:6px;font-size:13px;min-height:14px;text-align:center}
-.roomcode{font-size:26px;font-weight:900;letter-spacing:6px;color:#ff3366;margin:4px 0}
-.hint{color:#888;font-size:12px;text-align:center;margin:2px 0}
-.players-box{width:100%;max-width:420px;display:flex;flex-direction:column;gap:5px;margin:8px 0}
-.pl-item{display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(255,255,255,.06);border-radius:8px;font-size:12px}
-.pl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.pl-team{font-size:10px;padding:2px 6px;border-radius:5px;margin-left:auto}
-.setting-row{width:100%;max-width:420px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin:4px 0}
-.setting-row label{font-size:12px;color:#ccc}
-.setting-row select{max-width:180px;padding:6px;font-size:12px}
+.btn.full{grid-column:1 / -1}
+.btn.primary{background:linear-gradient(135deg,#ff3366,#ff6b3d);color:#fff;box-shadow:0 6px 20px rgba(255,51,102,.35)}
+.btn.green{background:linear-gradient(135deg,#28c76f,#1ea95c);color:#fff;box-shadow:0 6px 18px rgba(40,199,111,.28)}
+.btn.blue{background:linear-gradient(135deg,#33aaff,#1c7ed6);color:#fff;box-shadow:0 6px 18px rgba(51,170,255,.28)}
+.btn.gray{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.1);color:#eef2ff}
+.btn.danger{background:rgba(255,68,88,.2);border:1px solid rgba(255,68,88,.4);color:#ff7a88}
+.join-row{display:flex;gap:8px;margin-top:6px}
+.join-row .inp.code{flex:1;padding:10px}
+.join-row .btn{width:auto;padding:0 16px}
+
+.err{color:#ff6b7b;margin-top:10px;font-size:13px;font-weight:700;min-height:16px;text-align:center}
+.roomcode{font-size:30px;font-weight:950;letter-spacing:7px;color:#ff477e;margin:4px 0;text-align:center}
+.hint{color:#9aa7c7;font-size:12px;text-align:center;margin:3px 0}
+.players-box{width:100%;display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.pl-item{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.07);border-radius:10px;font-size:13px}
+.pl-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.pl-team{font-size:11px;padding:2px 8px;border-radius:6px;margin-left:auto;font-weight:700}
+.setting-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;margin:6px 0}
+.setting-row label{font-size:13px;color:#d6def5;font-weight:600}
+.setting-row select{max-width:190px;padding:7px 10px;font-size:12px}
+
 #hud{position:absolute;inset:0;pointer-events:none;z-index:5}
 .hud-top{position:absolute;top:0;left:0;right:0;padding:8px;padding-top:calc(8px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
-.scorebox{background:rgba(0,0,0,.65);padding:5px 10px;border-radius:10px;font-weight:700;font-size:15px;display:flex;gap:5px;align-items:center}
-.scorebox .red{color:#ff3366}.scorebox .blue{color:#33aaff}
-.timebox,.pingbox{background:rgba(0,0,0,.65);padding:5px 8px;border-radius:10px;font-size:11px;font-weight:700}
-.pingbox{color:#34c759}
-.exit{pointer-events:auto;width:32px;height:32px;border-radius:50%;background:rgba(255,60,60,.3);border:1px solid rgba(255,60,60,.6);color:#ff6666;font-size:14px;font-weight:700;flex-shrink:0}
-.hud-btn{pointer-events:auto;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:14px;flex-shrink:0}
-#goalMsg{position:absolute;top:30%;left:50%;transform:translate(-50%,-50%);font-size:44px;font-weight:900;color:#ffcc00;text-shadow:0 0 40px rgba(255,204,0,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center;z-index:7}
+.scorebox{background:rgba(10,14,24,.78);border:1px solid rgba(255,255,255,.14);padding:6px 12px;border-radius:12px;font-weight:900;font-size:16px;display:flex;gap:6px;align-items:center}
+.scorebox .red{color:#ff477e}.scorebox .blue{color:#4dabf7}
+.timebox,.pingbox{background:rgba(10,14,24,.78);border:1px solid rgba(255,255,255,.14);padding:6px 9px;border-radius:12px;font-size:11px;font-weight:800}
+.pingbox{color:#28c76f}
+.exit{pointer-events:auto;width:34px;height:34px;border-radius:50%;background:rgba(255,68,88,.25);border:1px solid rgba(255,68,88,.55);color:#ff8592;font-size:14px;font-weight:800;flex-shrink:0}
+.hud-btn{pointer-events:auto;width:34px;height:34px;border-radius:50%;background:rgba(18,23,36,.8);border:1px solid rgba(255,255,255,.22);color:#fff;font-size:14px;flex-shrink:0}
+
+#goalMsg{position:absolute;top:28%;left:50%;transform:translate(-50%,-50%);font-size:42px;font-weight:950;color:#ffd43b;text-shadow:0 0 36px rgba(255,212,59,.85);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center;z-index:7}
 #goalMsg.show{opacity:1}
-#comboMsg{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%);font-size:36px;font-weight:900;color:#ff6633;text-shadow:0 0 30px rgba(255,102,51,.9);opacity:0;transition:opacity .3s;pointer-events:none;text-align:center;z-index:7}
+#comboMsg{position:absolute;top:41%;left:50%;transform:translate(-50%,-50%);font-size:32px;font-weight:950;color:#ff7b39;text-shadow:0 0 28px rgba(255,123,57,.85);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center;z-index:7}
 #comboMsg.show{opacity:1}
-#countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:90px;font-weight:900;color:#ff3366;text-shadow:0 0 60px rgba(255,51,102,.9);z-index:8;pointer-events:none}
+#countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:90px;font-weight:950;color:#ff477e;text-shadow:0 0 60px rgba(255,71,126,.9);z-index:8;pointer-events:none}
 #countdown.show{display:flex}
+
 #joyZone{position:absolute;left:0;bottom:0;width:45%;height:65%;z-index:6;touch-action:none}
 .joy-base{position:absolute;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);pointer-events:none;display:none;transform:translate(-50%,-50%)}
 .joy-base.sprinting{border-color:#00ffcc;box-shadow:0 0 18px rgba(0,255,204,.45)}
-.joy-stick{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(255,51,102,.75);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,51,102,.6)}
+.joy-stick{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(255,51,102,.82);border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,51,102,.6)}
+
 #actionZone{position:absolute;right:0;bottom:0;width:55%;height:70%;z-index:6;touch-action:none;pointer-events:auto}
-.act-btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid rgba(255,255,255,.4);color:#fff;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s, background .08s, opacity .15s;touch-action:none}
-.act-btn .lbl2{font-size:9px;opacity:.85;font-weight:600;margin-top:1px}
-.act-btn.on{transform:scale(.9)}
-.act-btn.cd{opacity:.45}
-.aim-arrow{position:absolute;top:-16px;font-size:12px;color:#ffcc00;pointer-events:none;transform-origin:center;transition:transform .05s}
-#btnKick{width:70px;height:70px;right:14px;bottom:14px;background:rgba(255,51,102,.55);font-size:20px}
-#btnPass{width:54px;height:54px;right:96px;bottom:24px;background:rgba(51,170,255,.55);font-size:14px}
-#btnDash{width:50px;height:50px;right:24px;bottom:96px;background:rgba(255,204,0,.55);color:#222;font-size:14px}
-#btnTackle{width:54px;height:54px;right:96px;bottom:96px;background:rgba(255,136,0,.55);font-size:16px}
-#btnKick.on{background:rgba(255,51,102,.95)}
-#btnPass.on{background:rgba(51,170,255,.95)}
-#btnDash.on{background:rgba(255,204,0,.95)}
-#btnTackle.on{background:rgba(255,136,0,.95)}
-#powerBar{position:absolute;bottom:190px;right:22px;width:16px;height:100px;background:rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.3);border-radius:8px;display:none;overflow:hidden;z-index:7}
+.act-btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid rgba(255,255,255,.38);color:#fff;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s,background .08s,opacity .15s;touch-action:none;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+.act-btn .lbl2{font-size:9px;opacity:.9;font-weight:700;margin-top:1px}
+.act-btn.on{transform:scale(.91)}
+.act-btn.cd{opacity:.42}
+.aim-arrow{position:absolute;top:-22px;left:50%;margin-left:-10px;width:20px;height:20px;display:none;align-items:center;justify-content:center;font-size:15px;color:#ffd43b;text-shadow:0 0 10px rgba(0,0,0,.9);pointer-events:none;transform-origin:center}
+.aim-arrow.active{display:flex}
+
+#btnKick{width:72px;height:72px;right:16px;bottom:16px;background:rgba(255,51,102,.68);font-size:20px}
+#btnPass{width:56px;height:56px;right:100px;bottom:24px;background:rgba(51,170,255,.68);font-size:15px}
+#btnDash{width:52px;height:52px;right:24px;bottom:100px;background:rgba(255,204,0,.72);color:#141824;font-size:15px}
+#btnTackle{width:56px;height:56px;right:98px;bottom:98px;background:rgba(255,136,0,.68);font-size:16px}
+#btnKick.on{background:rgba(255,51,102,.98)}
+#btnPass.on{background:rgba(51,170,255,.98)}
+#btnDash.on{background:rgba(255,204,0,.98)}
+#btnTackle.on{background:rgba(255,136,0,.98)}
+
+#powerBar{position:absolute;bottom:188px;right:24px;width:16px;height:100px;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.32);border-radius:8px;display:none;overflow:hidden;z-index:7}
 #powerBar.show{display:block}
-#powerFill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,#34c759,#ffcc00,#ff3366);height:0%;transition:height .03s linear}
-#miniMap{position:absolute;top:50px;right:8px;width:80px;height:54px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.3);border-radius:6px;z-index:5;pointer-events:none}
-#progressBar{position:absolute;top:0;left:0;right:0;height:5px;background:rgba(0,0,0,.3);z-index:6}
+#powerFill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,#28c76f,#ffd43b,#ff3366);height:0%;transition:height .03s linear}
+
+#miniMap{position:absolute;top:52px;right:8px;width:82px;height:55px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.28);border-radius:8px;z-index:5;pointer-events:none}
+#progressBar{position:absolute;top:0;left:0;right:0;height:5px;background:rgba(0,0,0,.35);z-index:6}
 #progressFill{height:100%;width:50%;background:linear-gradient(90deg,#ff3366,#33aaff);transition:width .3s}
-#emoteBar,#quickChatBar{position:absolute;top:50px;right:8px;display:flex;flex-direction:column;gap:4px;z-index:6}
-#quickChatBar{right:auto;left:8px;max-width:160px}
-.emote-btn{pointer-events:auto;width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:15px;cursor:pointer}
-.qchat-btn{pointer-events:auto;padding:5px 8px;border-radius:8px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:11px;text-align:left;cursor:pointer}
+
+#emoteBar,#quickChatBar{position:absolute;top:52px;right:8px;display:flex;flex-direction:column;gap:5px;z-index:6}
+#quickChatBar{right:auto;left:8px;max-width:165px}
+.emote-btn{pointer-events:auto;width:36px;height:36px;border-radius:50%;background:rgba(15,20,32,.85);border:1px solid rgba(255,255,255,.28);color:#fff;font-size:15px;cursor:pointer}
+.qchat-btn{pointer-events:auto;padding:6px 9px;border-radius:9px;background:rgba(15,20,32,.88);border:1px solid rgba(255,255,255,.22);color:#fff;font-size:11px;font-weight:600;text-align:left;cursor:pointer}
 .emote{position:absolute;font-size:22px;pointer-events:none;z-index:7;animation:emoteFloat 2s ease-out forwards}
 @keyframes emoteFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-80px) scale(1.5)}}
+
 #result{position:absolute;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:9;padding:20px;overflow-y:auto}
 #result.show{display:flex}
-.result-box{background:rgba(20,20,30,.98);border-radius:20px;padding:22px;max-width:380px;width:100%;text-align:center;display:flex;flex-direction:column;gap:8px;border:2px solid rgba(255,255,255,.1)}
+.result-box{background:#121724;border-radius:20px;padding:22px;max-width:380px;width:100%;text-align:center;display:flex;flex-direction:column;gap:8px;border:1.5px solid rgba(255,255,255,.14)}
 .result-box h2{font-size:22px}
-.result-score{font-size:36px;font-weight:900}
-#trainPanel,#settingsPanel,#shopPanel,#dailyPanel,#tutorialPanel,#recordsPanel{position:absolute;inset:0;background:rgba(10,10,15,.97);display:none;flex-direction:column;justify-content:flex-start;align-items:center;padding:16px;z-index:11;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.result-score{font-size:36px;font-weight:950}
+
+#trainPanel,#settingsPanel,#shopPanel,#dailyPanel,#tutorialPanel,#recordsPanel{position:fixed;inset:0;background:rgba(9,12,20,.97);display:none;flex-direction:column;align-items:center;padding:18px 14px 48px;z-index:11;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 #trainPanel.show,#settingsPanel.show,#shopPanel.show,#dailyPanel.show,#tutorialPanel.show,#recordsPanel.show{display:flex}
-.train-toggle{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:420px;padding:8px 12px;background:rgba(255,255,255,.06);border-radius:8px;margin:3px 0;font-size:13px}
+.train-toggle{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:440px;padding:10px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;margin:4px 0;font-size:13px;font-weight:600}
 .toggle{width:46px;height:26px;background:rgba(255,255,255,.2);border-radius:13px;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
 .toggle::after{content:'';position:absolute;top:2px;left:2px;width:22px;height:22px;background:#fff;border-radius:50%;transition:left .2s}
-.toggle.on{background:#34c759}
+.toggle.on{background:#28c76f}
 .toggle.on::after{left:22px}
-#chatBox{position:absolute;left:6px;bottom:6px;width:200px;max-height:100px;overflow-y:auto;font-size:11px;background:rgba(0,0,0,.45);padding:5px 7px;border-radius:7px;z-index:5;pointer-events:none;display:flex;flex-direction:column;gap:2px}
-.chat-line{color:#ddd}
-.chat-line b{color:#ff3366}
-#shopPanel .item,.daily-item{width:100%;max-width:420px;padding:10px 14px;background:rgba(255,255,255,.06);border-radius:10px;margin:4px 0;display:flex;justify-content:space-between;align-items:center;font-size:13px}
-#shopPanel .item button{padding:6px 12px;border:none;border-radius:8px;background:rgba(52,199,89,.4);color:#fff;font-weight:700;font-size:12px}
-#shopPanel .item button.owned{background:rgba(255,255,255,.2);opacity:.6}
-#shopPanel .item button.equipped{background:#34c759}
-.daily-item.done{opacity:.6;background:rgba(52,199,89,.2)}
-#qrBox{width:180px;height:180px;background:#fff;display:flex;align-items:center;justify-content:center;border-radius:10px;margin:8px 0;padding:8px}
+
+#chatBox{position:absolute;left:8px;bottom:8px;width:205px;max-height:105px;overflow-y:auto;font-size:11px;background:rgba(10,14,24,.65);border:1px solid rgba(255,255,255,.1);padding:6px 8px;border-radius:10px;z-index:5;pointer-events:none;display:flex;flex-direction:column;gap:2px}
+.chat-line{color:#e2e8f8}
+.chat-line b{color:#ff477e}
+#shopPanel .item,.daily-item{width:100%;max-width:440px;padding:11px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;margin:5px 0;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600}
+#shopPanel .item button{padding:7px 13px;border:none;border-radius:9px;background:rgba(40,199,111,.45);color:#fff;font-weight:800;font-size:12px;cursor:pointer}
+#shopPanel .item button.owned{background:rgba(255,255,255,.16);opacity:.75}
+#shopPanel .item button.equipped{background:#28c76f}
+.daily-item.done{opacity:.65;background:rgba(40,199,111,.18)}
+#qrBox{width:180px;height:180px;background:#fff;display:flex;align-items:center;justify-content:center;border-radius:12px;margin:8px 0;padding:8px}
 #replayBox{position:absolute;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:12;flex-direction:column;padding:20px}
 #replayBox.show{display:flex}
-#replayBox canvas{width:80%;max-width:400px;aspect-ratio:16/9;background:#111;border-radius:10px}
-#tutorialPanel p{color:#ccc;font-size:14px;max-width:400px;margin:8px 0;line-height:1.5}
-#tutorialPanel h3{color:#ff3366;margin-top:16px;font-size:16px}
-#rotateLock{display:none;position:fixed;inset:0;background:#0a0a0f;z-index:999;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px}
+#replayBox canvas{width:80%;max-width:400px;aspect-ratio:16/9;background:#111;border-radius:12px}
+#tutorialPanel p{color:#c9d2ea;font-size:14px;max-width:420px;margin:8px 0;line-height:1.5}
+#tutorialPanel h3{color:#ff477e;margin-top:14px;font-size:15px}
+#rotateLock{display:none;position:fixed;inset:0;background:#090c14;z-index:999;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px}
 @media screen and (max-width: 900px) and (orientation: portrait) {
   body.in-match #rotateLock{display:flex}
 }
-.team-switch{display:flex;gap:6px;width:100%;max-width:420px;margin:4px 0}
-.team-switch button{flex:1;padding:7px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:700}
+.team-switch{display:flex;gap:6px;width:100%;margin:6px 0}
+.team-switch button{flex:1;padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:800;cursor:pointer}
 </style>
 </head>
 <body>
@@ -193,109 +217,132 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 </div>
 
 <div id="trainPanel">
-  <div class="title" style="font-size:20px">🎯 Тренировка</div>
+  <div class="title" style="font-size:22px">🎯 Тренировка</div>
   <div class="train-toggle">Бот <div class="toggle on" id="tgBot"></div></div>
-  <div class="train-toggle">Сложность бота <select id="botDiff" style="max-width:130px;padding:3px;font-size:12px"><option value="easy">Легко</option><option value="normal" selected>Средне</option><option value="hard">Сложно</option></select></div>
+  <div class="train-toggle">Сложность бота <select id="botDiff" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="easy">Легко</option><option value="normal" selected>Средне</option><option value="hard">Сложно</option></select></div>
   <div class="train-toggle">Рывок бота <div class="toggle on" id="tgBotDash"></div></div>
   <div class="train-toggle">Отбор у бота <div class="toggle on" id="tgBotTackle"></div></div>
-  <div class="train-toggle">Арена <select id="trainArena" style="max-width:130px;padding:3px;font-size:12px"><option value="classic">Классика</option><option value="ice">Лёд</option><option value="obstacles">Препятствия</option><option value="narrow">Узкая</option></select></div>
-  <div class="train-toggle">Скорость игры <select id="trainSpeed" style="max-width:130px;padding:3px;font-size:12px"><option value="0.6">Очень медленно</option><option value="0.8" selected>Медленно</option><option value="1">Обычно</option><option value="1.3">Быстро</option></select></div>
-  <div class="train-toggle">Зум камеры <select id="trainZoom" style="max-width:130px;padding:3px;font-size:12px"><option value="0.5">Далеко</option><option value="0.8" selected>Близко</option><option value="1.2">Очень близко</option></select></div>
-  <button class="btn primary" id="btnStartTrain">Начать тренировку</button>
-  <button class="btn gray" id="btnBackMenu2">В меню</button>
+  <div class="train-toggle">Арена <select id="trainArena" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="classic">Классика</option><option value="ice">Лёд</option><option value="obstacles">Препятствия</option><option value="narrow">Узкая</option></select></div>
+  <div class="train-toggle">Скорость игры <select id="trainSpeed" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="0.6">Очень медленно</option><option value="0.8">Медленно</option><option value="1" selected>Обычно</option><option value="1.3">Быстро</option></select></div>
+  <div class="train-toggle">Зум камеры <select id="trainZoom" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="0.5">Далеко</option><option value="0.8" selected>Близко</option><option value="1.2">Очень близко</option></select></div>
+  <button class="btn primary" style="max-width:440px;margin-top:12px" id="btnStartTrain">Начать тренировку</button>
+  <button class="btn gray" style="max-width:440px;margin-top:8px" id="btnBackMenu2">В меню</button>
 </div>
 
 <div id="settingsPanel">
-  <div class="title" style="font-size:20px">⚙️ Настройки</div>
-  <div class="train-toggle">Зум камеры <select id="zoomSel" style="max-width:130px;padding:3px;font-size:12px"><option value="0.5">Далеко</option><option value="0.8" selected>Близко</option><option value="1.2">Очень близко</option></select></div>
-  <div class="train-toggle">Чувствительность <select id="sensSel" style="max-width:130px;padding:3px;font-size:12px"><option value="0.6">0.6×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></div>
+  <div class="title" style="font-size:22px">⚙️ Настройки</div>
+  <div class="train-toggle">Зум камеры <select id="zoomSel" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="0.5">Далеко</option><option value="0.8" selected>Близко</option><option value="1.2">Очень близко</option></select></div>
+  <div class="train-toggle">Чувствительность <select id="sensSel" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="0.6">0.6×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></div>
   <div class="train-toggle">Инверсия осей <div class="toggle" id="tgInvert"></div></div>
-  <div class="train-toggle">Размер кнопок <select id="btnSizeSel" style="max-width:130px;padding:3px;font-size:12px"><option value="0.8">Маленькие</option><option value="1" selected>Обычные</option><option value="1.3">Большие</option></select></div>
+  <div class="train-toggle">Размер кнопок <select id="btnSizeSel" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="0.8">Маленькие</option><option value="1" selected>Обычные</option><option value="1.3">Большие</option></select></div>
   <div class="train-toggle">Звук <div class="toggle on" id="tgSound"></div></div>
   <div class="train-toggle">Вибрация <div class="toggle on" id="tgVibe"></div></div>
-  <div class="train-toggle">Язык <select id="langSel" style="max-width:130px;padding:3px;font-size:12px"><option value="ru" selected>Русский</option><option value="en">English</option></select></div>
+  <div class="train-toggle">Язык <select id="langSel" style="max-width:135px;padding:4px 8px;font-size:12px"><option value="ru" selected>Русский</option><option value="en">English</option></select></div>
   <div class="train-toggle">Голосовые команды <div class="toggle" id="tgVoice"></div></div>
-  <button class="btn primary" id="btnCloseSettings">Готово</button>
+  <button class="btn primary" style="max-width:440px;margin-top:12px" id="btnCloseSettings">Готово</button>
 </div>
 
 <div id="shopPanel">
-  <div class="title" style="font-size:20px">🛒 Магазин скинов</div>
-  <div class="hint">Твои монеты: <b id="myGoals" style="color:#ffcc00;font-size:20px">0</b></div>
-  <div id="shopItems"></div>
-  <button class="btn gray" id="btnCloseShop">Закрыть</button>
+  <div class="title" style="font-size:22px">🛒 Магазин скинов</div>
+  <div class="hint">Твои монеты: <b id="myGoals" style="color:#ffd43b;font-size:20px">0</b></div>
+  <div id="shopItems" style="width:100%;display:flex;flex-direction:column;align-items:center"></div>
+  <button class="btn gray" style="max-width:440px;margin-top:12px" id="btnCloseShop">Закрыть</button>
 </div>
 
 <div id="dailyPanel">
-  <div class="title" style="font-size:20px">🎯 Ежедневные задания</div>
+  <div class="title" style="font-size:22px">🎯 Ежедневные задания</div>
   <div class="hint" id="dailyReset"></div>
-  <div id="dailyItems"></div>
-  <button class="btn gray" id="btnCloseDaily">Закрыть</button>
+  <div id="dailyItems" style="width:100%;display:flex;flex-direction:column;align-items:center"></div>
+  <button class="btn gray" style="max-width:440px;margin-top:12px" id="btnCloseDaily">Закрыть</button>
 </div>
 
 <div id="recordsPanel">
-  <div class="title" style="font-size:20px">🏆 Таблица рекордов</div>
-  <div id="recordsItems" style="width:100%;max-width:420px;margin:10px 0"></div>
-  <button class="btn gray" id="btnCloseRecords">Закрыть</button>
+  <div class="title" style="font-size:22px">🏆 Таблица рекордов</div>
+  <div id="recordsItems" style="width:100%;max-width:440px;margin:10px 0"></div>
+  <button class="btn gray" style="max-width:440px" id="btnCloseRecords">Закрыть</button>
 </div>
 
 <div id="tutorialPanel">
-  <div class="title" style="font-size:20px">📖 Как играть</div>
+  <div class="title" style="font-size:22px">📖 Как играть</div>
   <h3>Управление</h3>
-  <p>🕹 <b>Левый джойстик</b> — движение. Двойной тап по джойстику или кнопка <b>Рывок</b> — быстрое ускорение.</p>
-  <p>⚽ <b>Дриблинг</b> — подойди к мячу, и он прикрепится спереди. Отобрать его соперник может только кнопкой <b>Отбор</b>.</p>
-  <p>🎯 <b>Удар / Пас</b> — тяни в сторону для направления и подкрутки. Также работает <b>свайп в правой части экрана</b>.</p>
-  <button class="btn primary" id="btnCloseTutorial" style="margin-top:20px">Понятно</button>
+  <p>🕹 <b>Левый джойстик</b> — движение. Двойной тап по джойстику или кнопка <b>Рывок</b> — ускорение.</p>
+  <p>⚽ <b>Дриблинг</b> — подойди к мячу, и он пойдёт спереди. Отобрать можно кнопкой <b>Отбор</b>.</p>
+  <p>🎯 <b>Удар / Пас</b> — тяни от кнопки в сторону, чтобы задать направление и подкрутку, либо делай свайп справа.</p>
+  <button class="btn primary" style="max-width:440px;margin-top:18px" id="btnCloseTutorial">Понятно</button>
 </div>
 
 <div id="menu" class="screen">
   <div class="title">⚽ BALL BRAWL <span>v7</span></div>
-  <div class="lbl">Ник</div>
-  <input id="nick" class="inp" maxlength="14" value="Игрок1">
-  <div class="lbl">Цвет</div>
-  <div id="colors" class="colors"></div>
-  <div class="lbl">Скин игрока</div>
-  <div id="skins" class="skins"></div>
-  <div class="lbl">Скин мяча</div>
-  <div id="ballSkins" class="skins"></div>
-  <div class="lbl">Номер (0–99)</div>
-  <input id="numberInput" class="inp" type="number" min="0" max="99" value="7">
-  <button id="btnCreate" class="btn primary">Создать комнату</button>
-  <div class="lbl">Код комнаты</div>
-  <input id="code" class="inp code" maxlength="5" placeholder="XXXXX" autocapitalize="characters">
-  <button id="btnJoin" class="btn green">Подключиться</button>
-  <button id="btnLocal2P" class="btn blue">👥 2 игрока (одно устройство)</button>
-  <button id="btnTraining" class="btn gray">🎯 Тренировка</button>
-  <button id="btnPenalty" class="btn gray">🥅 Пенальти (соло)</button>
-  <button id="btnRecords" class="btn gray">🏆 Рекорды</button>
-  <button id="btnDaily" class="btn gray">🎯 Ежедневные задания</button>
-  <button id="btnShop" class="btn gray">🛒 Магазин скинов</button>
-  <button id="btnSettings" class="btn gray">⚙️ Настройки</button>
-  <button id="btnTutorial" class="btn gray">📖 Как играть</button>
+  <div class="subtitle">Быстрый аркадный футбол на поле</div>
+
+  <div class="card">
+    <div class="lbl">Ник и номер</div>
+    <div style="display:flex;gap:8px">
+      <input id="nick" class="inp" maxlength="14" value="Игрок1" placeholder="Ник">
+      <input id="numberInput" class="inp" style="max-width:86px;text-align:center" type="number" min="0" max="99" value="7">
+    </div>
+
+    <div class="lbl">Цвет игрока</div>
+    <div id="colors" class="colors"></div>
+
+    <div class="lbl">Скин игрока</div>
+    <div id="skins" class="skins"></div>
+
+    <div class="lbl">Скин мяча</div>
+    <div id="ballSkins" class="skins"></div>
+  </div>
+
+  <div class="card">
+    <button id="btnCreate" class="btn primary full">🚀 Создать комнату</button>
+    <div class="join-row">
+      <input id="code" class="inp code" maxlength="5" placeholder="КОД" autocapitalize="characters">
+      <button id="btnJoin" class="btn green">Войти</button>
+    </div>
+
+    <div class="menu-grid">
+      <button id="btnLocal2P" class="btn blue">👥 2 игрока</button>
+      <button id="btnTraining" class="btn gray">🎯 Тренировка</button>
+      <button id="btnPenalty" class="btn gray">🥅 Пенальти</button>
+      <button id="btnShop" class="btn gray">🛒 Магазин</button>
+      <button id="btnDaily" class="btn gray">📋 Задания</button>
+      <button id="btnRecords" class="btn gray">🏆 Рекорды</button>
+      <button id="btnSettings" class="btn gray">⚙️ Настройки</button>
+      <button id="btnTutorial" class="btn gray">📖 Правила</button>
+    </div>
+  </div>
+
   <div id="err" class="err"></div>
 </div>
 
 <div id="lobby" class="screen hidden">
-  <div class="title" style="font-size:20px">Лобби</div>
-  <div class="hint">Код:</div>
-  <div class="roomcode" id="roomCodeLbl">-----</div>
-  <div class="hint">Участников: <b id="plCount">1</b>/6 • Твоя роль: <b id="myTeam">-</b></div>
-  <div class="team-switch">
-    <button id="swRed">🔴 Красные</button>
-    <button id="swBlue">🔵 Синие</button>
-    <button id="swSpec">👁 Зритель</button>
+  <div class="title" style="font-size:22px">Лобби матча</div>
+  <div class="card">
+    <div class="hint">Код комнаты:</div>
+    <div class="roomcode" id="roomCodeLbl">-----</div>
+    <div class="hint">Участников: <b id="plCount">1</b>/6 • Роль: <b id="myTeam">-</b></div>
+    <div class="team-switch">
+      <button id="swRed">🔴 Красные</button>
+      <button id="swBlue">🔵 Синие</button>
+      <button id="swSpec">👁 Зритель</button>
+    </div>
+    <div class="players-box" id="plBox"></div>
   </div>
-  <div class="players-box" id="plBox"></div>
-  <div class="setting-row"><label>Арена</label>
-    <select id="arenaSel"><option value="classic">Классика</option><option value="ice">Лёд</option><option value="obstacles">Препятствия</option><option value="narrow">Узкая</option></select></div>
-  <div class="setting-row"><label>Режим</label>
-    <select id="modeSel"><option value="classic">Классика (5)</option><option value="time">Тайм (2 мин)</option><option value="golden">Золотой гол</option><option value="chaos">Хаос (3 мяча)</option><option value="penalty">Пенальти</option></select></div>
-  <div class="setting-row"><label>Погода</label>
-    <select id="weatherSel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="night">Ночь</option><option value="fog">Туман</option></select></div>
-  <div class="setting-row"><label>Мяч</label>
-    <select id="ballSel"><option value="classic">Классика</option><option value="fire">Огонь</option><option value="ice">Лёд</option><option value="beach">Пляж</option><option value="neon">Неон</option><option value="star">Звезда</option></select></div>
-  <button id="btnStart" class="btn primary">Начать матч</button>
-  <div class="hint" id="hostHint"></div>
-  <button id="btnLeave" class="btn danger">Выйти</button>
+
+  <div class="card">
+    <div class="setting-row"><label>Арена</label>
+      <select id="arenaSel"><option value="classic">Классика</option><option value="ice">Лёд</option><option value="obstacles">Препятствия</option><option value="narrow">Узкая</option></select></div>
+    <div class="setting-row"><label>Режим</label>
+      <select id="modeSel"><option value="classic">Классика (5)</option><option value="time">Тайм (2 мин)</option><option value="golden">Золотой гол</option><option value="chaos">Хаос (3 мяча)</option><option value="penalty">Пенальти</option></select></div>
+    <div class="setting-row"><label>Погода</label>
+      <select id="weatherSel"><option value="clear">Ясно</option><option value="rain">Дождь</option><option value="night">Ночь</option><option value="fog">Туман</option></select></div>
+    <div class="setting-row"><label>Мяч</label>
+      <select id="ballSel"><option value="classic">Классика</option><option value="fire">Огонь</option><option value="ice">Лёд</option><option value="beach">Пляж</option><option value="neon">Неон</option><option value="star">Звезда</option></select></div>
+
+    <button id="btnStart" class="btn primary full" style="margin-top:10px">Начать матч</button>
+    <div class="hint" id="hostHint"></div>
+    <button id="btnLeave" class="btn danger full" style="margin-top:8px">Выйти</button>
+  </div>
+
   <div id="qrWrap" style="margin-top:10px;display:none;flex-direction:column;align-items:center">
     <div class="hint">QR-код для друзей:</div>
     <div id="qrBox"></div>
@@ -311,7 +358,7 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 try {
   const manifest = {
     name: 'Ball Brawl v7', short_name: 'Ball Brawl', start_url: '.',
-    display: 'standalone', orientation: 'landscape', background_color: '#0a0a0f', theme_color: '#0a0a0f'
+    display: 'standalone', orientation: 'landscape', background_color: '#090c14', theme_color: '#090c14'
   };
   const mLink = document.createElement('link');
   mLink.rel = 'manifest';
@@ -320,7 +367,7 @@ try {
 } catch (e) {}
 
 const PLAYER_R = 30, BALL_R = 20;
-const PLAYER_MAX = 205, DASH_IMPULSE = 380;
+const PLAYER_MAX = 320, DASH_IMPULSE = 540;
 const DRIBBLE_DIST = PLAYER_R + BALL_R + 4;
 const ARENAS = {
   classic:   { w: 1800, h: 1100 },
@@ -342,10 +389,10 @@ const S = {
   cam: { x: 0, y: 0, shake: 0 },
   lastFrame: performance.now(), rafId: null,
   settings: { arena: 'classic', mode: 'classic', weather: 'clear', ballSkin: 'classic', arenaColor: '#2a6d2a' },
-  timeLeft: 0, trainSpeed: 0.8, zoom: 0.8, sensitivity: 1, invert: false, btnSize: 1,
+  timeLeft: 0, trainSpeed: 1, zoom: 0.8, sensitivity: 1, invert: false, btnSize: 1,
   trainBot: { enabled: true, dash: true, tackle: true, diff: 'normal' },
   sound: true, vibrate: true, voice: false, lang: 'ru',
-  power: 0, chargingKind: null, aimDir: { x: 1, y: 0 }, ping: 0,
+  power: 0, chargingKind: null, aimDir: { x: 0, y: 0 }, ping: 0,
   achievements: {}, totalGoals: 0, totalWins: 0, coins: 0, penaltyRecord: 0,
   ownedSkins: ['plain'], ownedBallSkins: ['classic'],
   daily: { date: '', goals: 0, wins: 0, rewardClaimed: false },
@@ -419,10 +466,10 @@ const powerBar = $('powerBar'), powerFill = $('powerFill'), kickAimArrow = $('ki
 
 function applyButtonSize() {
   const btns = [
-    { el: btnKick, w: 70, r: 14, b: 14 },
-    { el: btnPass, w: 54, r: 96, b: 24 },
-    { el: btnDash, w: 50, r: 24, b: 96 },
-    { el: btnTackle, w: 54, r: 96, b: 96 }
+    { el: btnKick, w: 72, r: 16, b: 16 },
+    { el: btnPass, w: 56, r: 100, b: 24 },
+    { el: btnDash, w: 52, r: 24, b: 100 },
+    { el: btnTackle, w: 56, r: 98, b: 98 }
   ];
   btns.forEach(({ el, w, r, b }) => {
     const size = w * S.btnSize;
@@ -444,6 +491,20 @@ function showError(msg) {
 
 function addShake(amount) {
   S.cam.shake = Math.min(18, Math.max(S.cam.shake, amount));
+}
+
+function resolveAimVector(p) {
+  if (Math.hypot(S.aimDir.x, S.aimDir.y) > 0.12) {
+    const l = Math.hypot(S.aimDir.x, S.aimDir.y) || 1;
+    return { x: S.aimDir.x / l, y: S.aimDir.y / l };
+  }
+  const inp = S.myInput;
+  if (Math.hypot(inp.x, inp.y) > 0.12) {
+    const l = Math.hypot(inp.x, inp.y) || 1;
+    return { x: inp.x / l, y: inp.y / l };
+  }
+  const ang = (p && p.facing !== undefined) ? p.facing : 0;
+  return { x: Math.cos(ang), y: Math.sin(ang) };
 }
 
 // ==== AUDIO ====
@@ -579,7 +640,7 @@ setInterval(() => {
     socket.emit('pingCheck', performance.now(), (ts) => {
       S.ping = Math.round(performance.now() - ts);
       const pb = $('pingBox');
-      if (pb) { pb.textContent = S.ping + ' ms'; pb.style.color = S.ping < 60 ? '#34c759' : (S.ping < 130 ? '#ffcc00' : '#ff3366'); }
+      if (pb) { pb.textContent = S.ping + ' ms'; pb.style.color = S.ping < 60 ? '#28c76f' : (S.ping < 130 ? '#ffd43b' : '#ff477e'); }
     });
   }
 }, 2000);
@@ -614,7 +675,7 @@ socket.on('state', (snap) => {
       S.pendingInputs = S.pendingInputs.filter(inp => inp.seq > (s.lastSeq || 0));
       let predX = s.x, predY = s.y, predVx = s.vx, predVy = s.vy;
       for (const inp of S.pendingInputs) {
-        predVx += inp.x * 680 * inp.dt; predVy += inp.y * 680 * inp.dt;
+        predVx += inp.x * 980 * inp.dt; predVy += inp.y * 980 * inp.dt;
         const sp = Math.hypot(predVx, predVy);
         if (sp > PLAYER_MAX && (p.dashTimer || 0) <= 0) { predVx = predVx / sp * PLAYER_MAX; predVy = predVy / sp * PLAYER_MAX; }
         predX += predVx * inp.dt; predY += predVy * inp.dt;
@@ -1019,7 +1080,7 @@ joyZone.addEventListener('touchend', (e) => { for (const t of e.changedTouches) 
 joyZone.addEventListener('touchcancel', joyEndH, { passive: false });
 joyZone.addEventListener('mousedown', (e) => { if (S.inGame) { mouseJoy = true; joyStartH(e.clientX, e.clientY, 'm'); } });
 addEventListener('mousemove', (e) => { if (mouseJoy) joyMoveH(e.clientX, e.clientY); });
-addEventListener('mouseup', () => { if (mouseJoy) { mouseJoy = false; joyEndH(); } });
+addEventListener('mouseup', (e) => { if (mouseJoy) { mouseJoy = false; joyEndH(); } });
 
 let rightSwipeId = null, rightSwipeStart = { x: 0, y: 0 }, rightSwipeTime = 0;
 actionZone.addEventListener('touchstart', (e) => {
@@ -1065,9 +1126,14 @@ function makeActionButton(btn, kind) {
       else socket.emit('action', { type: 'tackle' });
       playSfx('tackle'); vibrate(50); return;
     }
-    charging = true; S.chargingKind = kind;
+    charging = true; S.chargingKind = kind; S.aimDir = { x: 0, y: 0 };
     pressStart = performance.now(); pressStartPos = { x: clientX, y: clientY };
     btn.classList.add('on'); powerBar.classList.add('show'); powerFill.style.height = '0%';
+    if (kind === 'kick') {
+      kickAimArrow.classList.add('active');
+      const v = resolveAimVector(S.players[S.myId]);
+      kickAimArrow.style.transform = `rotate(${(Math.atan2(v.y, v.x) * 180) / Math.PI + 90}deg)`;
+    }
     chargeRaf = requestAnimationFrame(chargeTick);
   }
 
@@ -1075,6 +1141,10 @@ function makeActionButton(btn, kind) {
     if (!charging) return;
     const dur = Math.min(1.5, (performance.now() - pressStart) / 1000);
     S.power = dur / 1.5; powerFill.style.height = (S.power * 100) + '%';
+    if (kind === 'kick' && Math.hypot(S.aimDir.x, S.aimDir.y) <= 0.12) {
+      const v = resolveAimVector(S.players[S.myId]);
+      kickAimArrow.style.transform = `rotate(${(Math.atan2(v.y, v.x) * 180) / Math.PI + 90}deg)`;
+    }
     chargeRaf = requestAnimationFrame(chargeTick);
   }
 
@@ -1084,7 +1154,7 @@ function makeActionButton(btn, kind) {
     if (dl > 10) {
       S.aimDir = { x: dx / dl, y: dy / dl };
       if (kind === 'kick') {
-        const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        const deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
         kickAimArrow.style.transform = `rotate(${deg}deg)`;
       }
     }
@@ -1093,22 +1163,23 @@ function makeActionButton(btn, kind) {
   function endCharge(clientX, clientY) {
     if (!charging) return;
     charging = false; S.chargingKind = null;
-    btn.classList.remove('on'); powerBar.classList.remove('show'); cancelAnimationFrame(chargeRaf);
+    btn.classList.remove('on'); powerBar.classList.remove('show');
+    if (kind === 'kick') kickAimArrow.classList.remove('active');
+    cancelAnimationFrame(chargeRaf);
 
     const dragX = (clientX ?? pressStartPos.x) - pressStartPos.x;
     const dragY = (clientY ?? pressStartPos.y) - pressStartPos.y;
     const dl = Math.hypot(dragX, dragY);
-    const dirX = dl > 12 ? dragX / dl : 0;
-    const dirY = dl > 12 ? dragY / dl : 0;
+    const v = dl > 12 ? { x: dragX / dl, y: dragY / dl } : resolveAimVector(S.players[S.myId]);
 
     const dur = Math.min(1.5, (performance.now() - pressStart) / 1000);
     const power = Math.max(0.25, Math.min(1, dur / 1.5));
 
-    if (S.modeType !== 'online') doOfflineAction('p1', kind, dirX, dirY, power);
-    else socket.emit('action', { type: kind, dirX, dirY, power });
+    if (S.modeType !== 'online') doOfflineAction('p1', kind, v.x, v.y, power);
+    else socket.emit('action', { type: kind, dirX: v.x, dirY: v.y, power });
 
     if (kind === 'kick') playSfx('kick');
-    S.power = 0;
+    S.power = 0; S.aimDir = { x: 0, y: 0 };
   }
 
   btn.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.changedTouches[0]; startCharge(t.clientX, t.clientY); }, { passive: false });
@@ -1132,7 +1203,7 @@ function applyOfflineShot(p, b, kind, dirX, dirY, powerLevel) {
   b.ownerId = null;
   p.pickupLock = 0.25;
   const speedBonus = 1 + Math.min(0.25, Math.hypot(p.vx, p.vy) / 900);
-  const imp = (kind === 'kick' ? 820 : 520) * powerLevel * speedBonus;
+  const imp = (kind === 'kick' ? 860 : 560) * powerLevel * speedBonus;
   let dx = dirX, dy = dirY;
   if (Math.hypot(dx, dy) < 0.1) { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
   const l = Math.hypot(dx, dy) || 1;
@@ -1163,7 +1234,7 @@ function stepOfflinePhysics(dt, rawDt, now) {
     if (S.modeType === 'penalty') {
       const targetY = Math.max(-145, Math.min(145, b.y * 0.75));
       const dy = targetY - bot.y;
-      bot.vy = Math.max(-190, Math.min(190, dy * 3.0));
+      bot.vy = Math.max(-240, Math.min(240, dy * 3.4));
       bot.y += bot.vy * dt;
       bot.x = maxX - 110;
     } else {
@@ -1213,7 +1284,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
     }
   }
 
-  // Дриблинг: мяч жёстко спереди игрока (по направлению взгляда/движения) и не теряется при движении
   for (const b of S.balls) {
     if (b.ownerId && playerMap[b.ownerId]) {
       const owner = playerMap[b.ownerId];
@@ -1237,7 +1307,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
       const bf = Math.pow(0.988, dt * 60);
       b.vx *= bf; b.vy *= bf; b.x += b.vx * dt; b.y += b.vy * dt;
 
-      // Подбор только при физическом касании (без магнита)
       for (const key of ['p1', 'p2', 'bot']) {
         const p = playerMap[key];
         if (!p || p.pickupLock > 0) continue;
@@ -1255,7 +1324,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
 
   const goalHalfH = (arena.h * 0.3) / 2;
   for (const b of S.balls) {
-    // Отскок от боковых границ как от стены (без аутов и угловых)
     if (b.y < minY + BALL_R) { b.y = minY + BALL_R; b.vy = Math.abs(b.vy) * 0.72; }
     if (b.y > maxY - BALL_R) { b.y = maxY - BALL_R; b.vy = -Math.abs(b.vy) * 0.72; }
 
@@ -1264,7 +1332,6 @@ function stepOfflinePhysics(dt, rawDt, now) {
     const escapedRight = b.x > maxX + BALL_R * 0.4 && inGoalY;
 
     if (escapedLeft || escapedRight) {
-      // Гол засчитывается команде противника ворот (или последней касавшейся команде)
       const toucher = S.lastToucherId ? playerMap[S.lastToucherId] : null;
       const scoringTeam = escapedLeft ? 'blue' : 'red';
       const creditTeam = (toucher && toucher.team) ? toucher.team : scoringTeam;
@@ -1312,7 +1379,7 @@ function moveOfflinePlayer(p, inp, iceF, dt, customMax = PLAYER_MAX) {
   if (moving) p.facing = Math.atan2(inp.y, inp.x);
 
   if ((p.dashTimer || 0) <= 0) {
-    p.vx += inp.x * 680 * dt; p.vy += inp.y * 680 * dt;
+    p.vx += inp.x * 980 * dt; p.vy += inp.y * 980 * dt;
   }
   if (!moving && (p.dashTimer || 0) <= 0) {
     const fr = Math.pow(iceF, dt * 60); p.vx *= fr; p.vy *= fr;
@@ -1351,7 +1418,7 @@ function doOfflineAction(playerKey, kind, dirX, dirY, power) {
   if (kind === 'tackle') {
     if (me.tackleCd > 0) return; me.tackleCd = 2.2;
     const fx = Math.cos(me.facing || 0), fy = Math.sin(me.facing || 0);
-    me.vx += fx * 260; me.vy += fy * 260;
+    me.vx += fx * 280; me.vy += fy * 280;
 
     for (const b of S.balls) {
       const d = Math.hypot(b.x - me.x, b.y - me.y);
@@ -1371,7 +1438,7 @@ function doOfflineAction(playerKey, kind, dirX, dirY, power) {
   for (const b of S.balls) {
     if (b.ownerId === playerKey) { bestB = b; break; }
     const d = Math.hypot(b.x - me.x, b.y - me.y);
-    const range = (kind === 'kick' ? 75 : 85) + PLAYER_R + BALL_R;
+    const range = (kind === 'kick' ? 85 : 95) + PLAYER_R + BALL_R;
     if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
   }
   if (!bestB) return;
@@ -1397,7 +1464,7 @@ function getScale() {
 }
 
 function renderWorld(dt) {
-  ctx.fillStyle = S.settings.weather === 'night' ? '#050510' : '#0a0a0f';
+  ctx.fillStyle = S.settings.weather === 'night' ? '#050510' : '#090c14';
   ctx.fillRect(0, 0, W, H);
 
   const arena = ARENAS[S.settings.arena] || ARENAS.classic, scale = getScale();
@@ -1411,8 +1478,8 @@ function renderWorld(dt) {
 
   const minX = -arena.w / 2, maxX = arena.w / 2, minY = -arena.h / 2, maxY = arena.h / 2;
 
-  ctx.fillStyle = '#1a3d1a'; ctx.fillRect(minX - 400, minY - 400, arena.w + 800, arena.h + 800);
-  ctx.fillStyle = S.settings.weather === 'night' ? '#1a3a1a' : (S.settings.arena === 'ice' ? '#cce6f0' : (S.settings.arenaColor || '#2a6d2a'));
+  ctx.fillStyle = '#18381d'; ctx.fillRect(minX - 400, minY - 400, arena.w + 800, arena.h + 800);
+  ctx.fillStyle = S.settings.weather === 'night' ? '#18361c' : (S.settings.arena === 'ice' ? '#cce6f0' : (S.settings.arenaColor || '#26682e'));
   ctx.fillRect(minX, minY, arena.w, arena.h);
 
   if (S.settings.arena !== 'ice') {
@@ -1464,18 +1531,33 @@ function renderWorld(dt) {
     const sp = Math.hypot(b.vx || 0, b.vy || 0);
     b.rot = (b.rot || 0) + (sp * dt) / BALL_R;
 
-    if (S.chargingKind === 'kick' && myPlayer && myPlayer.team !== 'spec') {
+    if (S.chargingKind && myPlayer && myPlayer.team !== 'spec') {
       const dist = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
-      if (b.ownerId === S.myId || dist < 75 + PLAYER_R + BALL_R) {
-        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R + 8, 0, Math.PI * 2); ctx.stroke();
+      const range = (S.chargingKind === 'kick' ? 85 : 95) + PLAYER_R + BALL_R;
+      if (b.ownerId === S.myId || dist <= range) {
+        const aim = resolveAimVector(myPlayer);
+        const arrowLen = 75 + S.power * 165;
+        const tipX = b.x + aim.x * arrowLen;
+        const tipY = b.y + aim.y * arrowLen;
+        const headAng = Math.atan2(aim.y, aim.x);
 
-        const ax = Math.hypot(S.aimDir.x, S.aimDir.y) > 0.1 ? S.aimDir.x : Math.cos(myPlayer.facing || 0);
-        const ay = Math.hypot(S.aimDir.x, S.aimDir.y) > 0.1 ? S.aimDir.y : Math.sin(myPlayer.facing || 0);
-        const arrowLen = 70 + S.power * 160;
         ctx.save();
-        ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 4; ctx.setLineDash([10, 8]);
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + ax * arrowLen, b.y + ay * arrowLen); ctx.stroke();
+        ctx.strokeStyle = S.chargingKind === 'kick' ? '#ffd43b' : '#4dabf7';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([10, 7]);
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y);
+        ctx.lineTo(tipX, tipY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = S.chargingKind === 'kick' ? '#ffd43b' : '#4dabf7';
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - Math.cos(headAng - 0.5) * 16, tipY - Math.sin(headAng - 0.5) * 16);
+        ctx.lineTo(tipX - Math.cos(headAng + 0.5) * 16, tipY - Math.sin(headAng + 0.5) * 16);
+        ctx.closePath();
+        ctx.fill();
         ctx.restore();
       }
     }
@@ -1561,7 +1643,7 @@ function drawPlayer(p, isMe) {
   ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
 
   if (isMe && S.chargingKind && S.power > 0) {
-    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 5;
+    ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(x, y, r + 12, -Math.PI / 2, -Math.PI / 2 + S.power * Math.PI * 2);
     ctx.stroke();
@@ -1572,11 +1654,11 @@ function drawPlayer(p, isMe) {
   ctx.strokeText(String(p.number ?? ''), x, y); ctx.fillText(String(p.number ?? ''), x, y);
 
   if (p.dashCd > 0) {
-    ctx.strokeStyle = 'rgba(255,204,0,.9)'; ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(255,212,59,.9)'; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.arc(x, y, r + 10, -Math.PI / 2, -Math.PI / 2 + (1 - p.dashCd / 2.0) * Math.PI * 2); ctx.stroke();
   }
 
-  ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = isMe ? '#ffcc00' : '#fff';
+  ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = isMe ? '#ffd43b' : '#fff';
   ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 3; ctx.textBaseline = 'bottom';
   ctx.strokeText(p.name || '', x, y - r - 10); ctx.fillText(p.name || '', x, y - r - 10); ctx.textBaseline = 'middle';
 }
@@ -1597,7 +1679,7 @@ function gameLoop(now) {
       if (moving) me.facing = Math.atan2(S.myInput.y, S.myInput.x);
 
       if ((me.dashTimer || 0) <= 0) {
-        me.vx += S.myInput.x * 680 * rawDt; me.vy += S.myInput.y * 680 * rawDt;
+        me.vx += S.myInput.x * 980 * rawDt; me.vy += S.myInput.y * 980 * rawDt;
       }
       if (!moving && (me.dashTimer || 0) <= 0) {
         const f = Math.pow(0.982, rawDt * 60); me.vx *= f; me.vy *= f;
@@ -1632,11 +1714,11 @@ function checkAchievements() {
 }
 function toast(msg) {
   const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;top:20%;left:50%;transform:translateX(-50%);background:rgba(255,204,0,.95);color:#111;padding:10px 18px;border-radius:12px;font-weight:900;z-index:99;font-size:14px;pointer-events:none;max-width:80%';
+  el.style.cssText = 'position:fixed;top:20%;left:50%;transform:translateX(-50%);background:rgba(255,212,59,.96);color:#111;padding:10px 18px;border-radius:12px;font-weight:900;z-index:99;font-size:14px;pointer-events:none;max-width:80%';
   el.textContent = msg; document.body.appendChild(el);
   setTimeout(() => { if (el.isConnected) el.remove(); }, 2500);
 }
 })();
 </script>
 </body>
-  </html>
+                  </html>
