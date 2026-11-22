@@ -15,18 +15,22 @@ const PLAYER_R = 30, BALL_R = 20;
 const PLAYER_MAX = 390, DASH_IMPULSE = 660;
 const PLAYER_ACCEL = 1350;
 const FRICTION = 0.965, BOUNCE = 0.78;
-const KICK_MAX = 980, PASS_MAX = 660, LOB_MAX = 820, FINESSE_MAX = 860;
-const DASH_CD = 1.7, TACKLE_CD = 1.8;
+const KICK_MAX = 980, PASS_MAX = 660, LOB_MAX = 820, FINESSE_MAX = 860, KNUCKLE_MAX = 1040;
+const DASH_CD = 1.7, TACKLE_CD = 1.8, ABILITY_CD = 11.0;
 const DRIBBLE_DIST = PLAYER_R + BALL_R + 3;
 const SERVER_TICK = 60, SYNC_RATE = 30, MAX_PLAYERS = 8;
 const GOAL_DEPTH = 78;
+const POST_R = 9;
 const AFK_TIMEOUT_MS = 35000;
 
 const ARENAS = {
   classic:   { w: 1800, h: 1100, obstacles: [] },
   ice:       { w: 1800, h: 1100, obstacles: [] },
   obstacles: { w: 1900, h: 1200, obstacles: [[-300, -200, 100, 60], [300, 200, 100, 60], [0, 0, 80, 80]] },
-  narrow:    { w: 2400, h: 800, obstacles: [] }
+  narrow:    { w: 2400, h: 800, obstacles: [] },
+  neon:      { w: 2000, h: 1160, obstacles: [[-450, 0, 50, 180], [450, 0, 50, 180]] },
+  rooftop:   { w: 1700, h: 1020, obstacles: [[0, -260, 120, 40], [0, 260, 120, 40]] },
+  desert:    { w: 2100, h: 1240, obstacles: [[-240, 240, 90, 90], [240, -240, 90, 90]] }
 };
 const MODES = {
   classic:    { goals: 5 },
@@ -38,6 +42,29 @@ const MODES = {
 };
 const WEATHERS = { clear: 1, rain: 0.94, night: 1, fog: 1 };
 const CELEBRATIONS = ['slide', 'spin', 'jump', 'flex'];
+
+const PLAYER_ARCHETYPES = {
+  balanced:   { speed: 1.00, shot: 1.00, stamina: 1.00, control: 1.00, ability: 'burst' },
+  striker:    { speed: 1.03, shot: 1.12, stamina: 0.95, control: 1.00, ability: 'powershot' },
+  playmaker:  { speed: 0.98, shot: 0.97, stamina: 1.04, control: 1.14, ability: 'magnet' },
+  defender:   { speed: 0.96, shot: 0.96, stamina: 1.12, control: 1.05, ability: 'shield' }
+};
+
+const TACTICS = {
+  balanced:  { accelMult: 1.0, shotMult: 1.0, staminaDrain: 1.0 },
+  pressing:  { accelMult: 1.09, shotMult: 1.02, staminaDrain: 1.18 },
+  counter:   { accelMult: 1.06, shotMult: 1.08, staminaDrain: 0.95 },
+  possession:{ accelMult: 0.97, shotMult: 0.96, staminaDrain: 0.85 }
+};
+
+const FORMATIONS = {
+  '1-1':   [[-0.36, 0], [-0.14, 0]],
+  '2-0':   [[-0.24, -0.22], [-0.24, 0.22]],
+  '0-2':   [[-0.12, -0.26], [-0.12, 0.26]],
+  '1-2-1': [[-0.38, 0], [-0.22, -0.25], [-0.22, 0.25], [-0.10, 0]]
+};
+
+const REGIONS = ['eu', 'ru', 'asia', 'us'];
 
 const PLAYER_SKIN_CATALOG = {
   plain: { price: 0, rarity: 'common' },
@@ -60,13 +87,13 @@ const COMMON_BALL_SKINS = ['beach'];
 // ==== PERSISTENT DATA STORE & AUTH SECRET ====
 const DATA_FILE = path.join(__dirname, 'ball_brawl_data.json');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const ADMIN_SECRET_HASH = crypto.createHash('sha256').update('Srm7vAd').digest('hex');
+const ADMIN_SECRET_HASH = process.env.ADMIN_SECRET_HASH || '';
 
 const DEFAULT_PROMOS = {
-  'BALL2026':   { type: 'coins', value: 50, maxUses: 100000, usedCount: 0, active: true },
-  'WELCOME':    { type: 'coins', value: 30, maxUses: 100000, usedCount: 0, active: true },
-  'GOALMASTER': { type: 'coins', value: 75, maxUses: 100000, usedCount: 0, active: true },
-  'FOOTBALL':   { type: 'coins', value: 100, maxUses: 100000, usedCount: 0, active: true },
+  'BALL2026':   { type: 'coins', value: 65, maxUses: 100000, usedCount: 0, active: true },
+  'WELCOME':    { type: 'coins', value: 40, maxUses: 100000, usedCount: 0, active: true },
+  'GOALMASTER': { type: 'coins', value: 90, maxUses: 100000, usedCount: 0, active: true },
+  'FOOTBALL':   { type: 'coins', value: 120, maxUses: 100000, usedCount: 0, active: true },
   'FREESKIN':   { type: 'common_skin', value: 1, maxUses: 100000, usedCount: 0, active: true }
 };
 
@@ -102,16 +129,14 @@ function verifyAccountToken(token, requestedId) {
 
 function resolveVerifiedAccount(socket, payload = {}) {
   const verifiedFromToken = verifyAccountToken(payload.sessionToken, payload.accountId);
-  if (verifiedFromToken) {
+  if (verifiedFromToken && db.accounts[verifiedFromToken]) {
     socket.accountId = verifiedFromToken;
     return getOrCreateAccount(verifiedFromToken, payload.nick);
   }
   if (socket.accountId && db.accounts[socket.accountId]) {
     return getOrCreateAccount(socket.accountId, payload.nick);
   }
-  const cleanId = 'acc_' + crypto.randomBytes(6).toString('hex');
-  socket.accountId = cleanId;
-  return getOrCreateAccount(cleanId, payload.nick);
+  return null;
 }
 
 function todayStr() {
@@ -128,6 +153,7 @@ function normalizeAccount(acc, cleanId, nick) {
   if (nick) acc.nick = sanitize(nick, acc.nick);
   if (!acc.nick) acc.nick = 'Игрок';
   acc.coins = Math.max(0, Number(acc.coins) || 0);
+  acc.elo = Math.max(400, Math.min(3500, Number(acc.elo) || 1000));
   acc.wins = Math.max(0, Number(acc.wins) || 0);
   acc.goals = Math.max(0, Number(acc.goals) || 0);
   acc.assists = Math.max(0, Number(acc.assists) || 0);
@@ -161,12 +187,12 @@ function normalizeAccount(acc, cleanId, nick) {
       firstMatchDone: false,
       goals: 0,
       wins: 0,
-      questReward: 75 + Math.floor(Math.random() * 76),
+      questReward: 95 + Math.floor(Math.random() * 81),
       questClaimed: false
     };
   }
-  if (!acc.daily.questReward || acc.daily.questReward < 75 || acc.daily.questReward > 150) {
-    acc.daily.questReward = 75 + Math.floor(Math.random() * 76);
+  if (!acc.daily.questReward || acc.daily.questReward < 95 || acc.daily.questReward > 175) {
+    acc.daily.questReward = 95 + Math.floor(Math.random() * 81);
   }
   acc.lastSeen = Date.now();
   return acc;
@@ -215,6 +241,7 @@ function getOrCreateAccount(accountId, nick) {
       id: cleanId,
       nick: sanitize(nick || 'Игрок'),
       coins: 0,
+      elo: 1000,
       wins: 0,
       goals: 0,
       assists: 0,
@@ -259,6 +286,7 @@ function publicAccountPayload(acc) {
     id: acc.id,
     nick: acc.nick,
     coins: acc.coins,
+    elo: acc.elo || 1000,
     wins: acc.wins,
     goals: acc.goals,
     assists: acc.assists,
@@ -278,9 +306,10 @@ function publicAccountPayload(acc) {
 
 // ==== RUNTIME STATE, FRIENDS, INVITES & PRIVATE ROOMS ====
 const rooms = {};
-const privateRooms = {}; // code -> roomId
-const matchInvites = {}; // inviteId -> { id, fromAccountId, fromNick, toAccountId, roomId, inviteCode, createdAt }
-const disconnectedSessions = {}; // `${accountId}:${roomId}` -> { roomId, accountId, playerSnapshot, team, disconnectedAt, timeout }
+const privateRooms = {};
+const matchInvites = {};
+const disconnectedSessions = {};
+const offlineTokens = {};
 const adminSessions = new Set();
 
 function genRoomId(prefix = 'M_') {
@@ -325,6 +354,7 @@ function buildFriendsPayload(acc) {
     return {
       id: facc.id,
       nick: facc.nick,
+      elo: facc.elo || 1000,
       wins: facc.wins,
       goals: facc.goals,
       status,
@@ -335,7 +365,7 @@ function buildFriendsPayload(acc) {
 
   const incoming = (acc.friendRequestsIn || []).map(fromId => {
     const facc = db.accounts[fromId];
-    return facc ? { id: facc.id, nick: facc.nick, wins: facc.wins } : null;
+    return facc ? { id: facc.id, nick: facc.nick, wins: facc.wins, elo: facc.elo || 1000 } : null;
   }).filter(Boolean);
 
   const outgoing = (acc.friendRequestsOut || []).map(toId => {
@@ -456,11 +486,15 @@ function arenaBounds(room) {
 }
 
 function createPlayerState(base) {
+  const arch = PLAYER_ARCHETYPES[base.archetype] || PLAYER_ARCHETYPES.balanced;
   return {
     ...base,
+    archetype: PLAYER_ARCHETYPES[base.archetype] ? base.archetype : 'balanced',
+    attrs: arch,
     x: 0, y: 0, vx: 0, vy: 0, facing: 0,
-    stamina: 100,
-    dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0,
+    stamina: 100, sprinting: false,
+    dashCd: 0, tackleCd: 0, abilityCd: 0, abilityActive: 0,
+    dashTimer: 0, pickupLock: 0,
     ready: false, afkWarned: false,
     stats: { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 },
     heatmap: []
@@ -482,26 +516,32 @@ function resetPositions(room) {
   const blues = ids.filter(id => room.players[id].team === 'blue');
   const bd = arenaBounds(room);
   const swapHalves = Boolean(room.swappedHalves);
+  const redSlots = FORMATIONS[room.settings.redFormation] || FORMATIONS['1-1'];
+  const blueSlots = FORMATIONS[room.settings.blueFormation] || FORMATIONS['1-1'];
 
   reds.forEach((id, i) => {
     const p = room.players[id];
-    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 95;
-    p.x = swapHalves ? (bd.maxX - 170) : (bd.minX + 170);
+    const slot = redSlots[i % redSlots.length];
+    const spread = reds.length === 1 ? 0 : (slot[1] * bd.h || (i - (reds.length - 1) / 2) * 95);
+    const baseDist = Math.abs(slot[0]) * bd.w;
+    p.x = swapHalves ? (baseDist) : (-baseDist);
     p.y = spread; p.vx = 0; p.vy = 0; p.facing = swapHalves ? Math.PI : 0;
-    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
+    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 70);
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
-    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 95;
-    p.x = swapHalves ? (bd.minX + 170) : (bd.maxX - 170);
+    const slot = blueSlots[i % blueSlots.length];
+    const spread = blues.length === 1 ? 0 : (slot[1] * bd.h || (i - (blues.length - 1) / 2) * 95);
+    const baseDist = Math.abs(slot[0]) * bd.w;
+    p.x = swapHalves ? (-baseDist) : (baseDist);
     p.y = spread; p.vx = 0; p.vy = 0; p.facing = swapHalves ? 0 : Math.PI;
-    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
+    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 70);
   });
 
   const mkBall = (x, y) => ({
     x, y, prevX: x, prevY: y,
     vx: 0, vy: 0, z: 0, vz: 0,
-    curve: 0, powerGlow: 0, shotType: 'normal',
+    spin: 0, curve: 0, powerGlow: 0, shotType: 'normal',
     ownerId: null, lastTeam: null, scored: false
   });
 
@@ -522,6 +562,7 @@ function resetPositions(room) {
 function getPlayersPublic(room) {
   return Object.entries(room.players).map(([id, p]) => ({
     id, accountId: p.accountId, name: p.name, color: p.color, team: p.team,
+    elo: p.elo || 1000, archetype: p.archetype || 'balanced',
     number: p.number, skin: p.skin, ready: Boolean(p.ready),
     celebration: p.celebration || 'jump',
     stats: p.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 },
@@ -559,10 +600,17 @@ function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign
   b.scored = false;
   p.pickupLock = 0.22;
 
+  const arch = p.attrs || PLAYER_ARCHETYPES.balanced;
+  const tactic = TACTICS[p.team === 'blue' ? room.settings.blueTactic : room.settings.redTactic] || TACTICS.balanced;
+  const abilityBoost = (p.abilityActive > 0 && arch.ability === 'powershot') ? 1.24 : 1.0;
+
   const speedBonus = 1 + Math.min(0.28, Math.hypot(p.vx, p.vy) / 800);
   const isOvercharged = kind === 'kick' && powerLevel >= 0.88;
-  const maxImp = kind === 'lob' ? LOB_MAX : (kind === 'finesse' ? FINESSE_MAX : (kind === 'kick' ? KICK_MAX : PASS_MAX));
-  const imp = maxImp * powerLevel * speedBonus * (isOvercharged ? 1.08 : 1);
+  const maxImp = kind === 'lob' ? LOB_MAX :
+                 (kind === 'finesse' ? FINESSE_MAX :
+                 (kind === 'knuckle' ? KNUCKLE_MAX :
+                 (kind === 'kick' ? KICK_MAX : PASS_MAX)));
+  const imp = maxImp * arch.shot * tactic.shotMult * abilityBoost * powerLevel * speedBonus * (isOvercharged ? 1.08 : 1);
 
   let dx = Number(dirX) || 0, dy = Number(dirY) || 0;
   if (!Number.isFinite(dx)) dx = 0;
@@ -582,23 +630,26 @@ function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign
   b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
   b.vx = nx * imp;
   b.vy = ny * imp;
-  b.vz = kind === 'lob' ? 260 * Math.max(0.5, powerLevel) : (isOvercharged ? 95 : 0);
+  b.vz = kind === 'lob' ? 275 * Math.max(0.5, powerLevel) : (isOvercharged ? 95 : 0);
   b.shotType = kind;
 
   const moveCross = nx * (inp.y || 0) - ny * (inp.x || 0);
   const safeCurveSign = Math.max(-1, Math.min(1, Number(curveSign) || 0));
   const effectiveCurve = safeCurveSign !== 0 ? safeCurveSign : moveCross;
-  const spin = kind === 'finesse'
-    ? (effectiveCurve !== 0 ? Math.sign(effectiveCurve) : (p.team === 'red' ? -1 : 1)) * 340 * powerLevel
-    : (kind === 'kick' ? effectiveCurve * 260 * powerLevel : (kind === 'lob' ? effectiveCurve * 140 * powerLevel : effectiveCurve * 90 * powerLevel));
+  const spin = kind === 'knuckle'
+    ? ((Math.random() > 0.5 ? 1 : -1) * 190 * powerLevel)
+    : (kind === 'finesse'
+      ? (effectiveCurve !== 0 ? Math.sign(effectiveCurve) : (p.team === 'red' ? -1 : 1)) * 380 * arch.control * powerLevel
+      : (kind === 'kick' ? effectiveCurve * 270 * powerLevel : (kind === 'lob' ? effectiveCurve * 150 * powerLevel : effectiveCurve * 95 * powerLevel)));
 
   b.curve = spin;
+  b.spin = spin * 0.05;
   b.powerGlow = Math.min(1, powerLevel * speedBonus * (isOvercharged ? 1.2 : 1));
   b.lastTeam = p.team;
 
   if (!room.stats) room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
   if (p.team === 'red' || p.team === 'blue') {
-    if (kind === 'kick' || kind === 'finesse' || kind === 'lob') {
+    if (kind === 'kick' || kind === 'finesse' || kind === 'lob' || kind === 'knuckle') {
       room.stats.shots[p.team]++;
       if (p.stats) p.stats.shots++;
     }
@@ -633,31 +684,53 @@ function resolveCircleRect(o, r, rx, ry, rw, rh, bounce) {
   }
 }
 
-// Goal registration strictly checks crossing goal line plane BEFORE boundary wall bounce
+function resolveGoalPostBounce(b, minX, maxX, goalHalfH) {
+  const posts = [
+    [minX, -goalHalfH], [minX, goalHalfH],
+    [maxX, -goalHalfH], [maxX, goalHalfH]
+  ];
+  for (const [px, py] of posts) {
+    const dx = b.x - px, dy = b.y - py;
+    const d = Math.hypot(dx, dy);
+    const minD = BALL_R + POST_R;
+    if (d < minD && d > 0.0001) {
+      const nx = dx / d, ny = dy / d;
+      b.x = px + nx * (minD + 0.5);
+      b.y = py + ny * (minD + 0.5);
+      const vn = b.vx * nx + b.vy * ny;
+      if (vn < 0) {
+        b.vx -= (1 + 0.88) * vn * nx;
+        b.vy -= (1 + 0.88) * vn * ny;
+        b.curve = (b.curve || 0) * -0.5;
+      }
+    }
+  }
+}
+
 function checkGoalSegment(b, minX, maxX, goalHalfH) {
-  const inZ = (b.z || 0) <= 72;
+  const inZ = (b.z || 0) <= 78;
   if (!inZ) return null;
 
-  const yTol = goalHalfH + BALL_R * 0.35;
+  const yTol = goalHalfH - BALL_R * 0.15;
   const leftLine = minX;
   const rightLine = maxX;
 
-  if (b.x <= leftLine + BALL_R * 0.25) {
-    if (b.prevX > leftLine) {
+  if (b.x <= leftLine) {
+    if (b.prevX >= leftLine) {
       const t = (leftLine - b.prevX) / ((b.x - b.prevX) || -1e-6);
       const crossY = b.prevY + (b.y - b.prevY) * Math.max(0, Math.min(1, t));
       if (Math.abs(crossY) <= yTol) return 'blue';
-    } else if (Math.abs(b.y) <= yTol && b.x < leftLine) {
+    } else if (Math.abs(b.y) <= yTol) {
       return 'blue';
     }
   }
 
-  if (b.x >= rightLine - BALL_R * 0.25) {
-    if (b.prevX < rightLine) {
+  if (b.x >= rightLine) {
+    if (b.prevX <= rightLine) {
       const t = (rightLine - b.prevX) / ((b.x - b.prevX) || 1e-6);
       const crossY = b.prevY + (b.y - b.prevY) * Math.max(0, Math.min(1, t));
       if (Math.abs(crossY) <= yTol) return 'red';
-    } else if (Math.abs(b.y) <= yTol && b.x > rightLine) {
+    } else if (Math.abs(b.y) <= yTol) {
       return 'red';
     }
   }
@@ -716,6 +789,8 @@ function startRoomLoop(roomId) {
   for (const id in room.players) {
     room.players[id].stats = { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
     room.players[id].stamina = 100;
+    room.players[id].abilityCd = 0;
+    room.players[id].abilityActive = 0;
     room.players[id].heatmap = [];
     room.players[id].afkWarned = false;
     room.lastActiveAt[id] = Date.now();
@@ -779,14 +854,28 @@ function startRoomLoop(roomId) {
       }
 
       const inp = room.inputs[id] || { x: 0, y: 0 };
-      const moving = Math.hypot(inp.x, inp.y) > 0.06;
+      const mag = Math.hypot(inp.x, inp.y);
+      const moving = mag > 0.06;
       if (moving) p.facing = Math.atan2(inp.y, inp.x);
 
+      const arch = p.attrs || PLAYER_ARCHETYPES.balanced;
+      const tactic = TACTICS[p.team === 'blue' ? room.settings.blueTactic : room.settings.redTactic] || TACTICS.balanced;
+      const wantsSprint = Boolean(inp.sprint) && moving && (p.stamina ?? 100) > 8;
+      p.sprinting = wantsSprint;
+
+      const burstMult = (p.abilityActive > 0 && arch.ability === 'burst') ? 1.25 : 1.0;
+      const sprintMult = wantsSprint ? 1.24 : 1.0;
       const staminaFactor = (p.stamina ?? 100) > 12 ? 1.0 : 0.78;
+
       if ((p.dashTimer || 0) <= 0) {
-        p.vx += inp.x * PLAYER_ACCEL * staminaFactor * dt;
-        p.vy += inp.y * PLAYER_ACCEL * staminaFactor * dt;
-        p.stamina = Math.min(100, (p.stamina ?? 100) + (moving ? 9 : 19) * dt);
+        const accel = PLAYER_ACCEL * arch.speed * tactic.accelMult * sprintMult * burstMult * staminaFactor;
+        p.vx += inp.x * accel * dt;
+        p.vy += inp.y * accel * dt;
+        if (wantsSprint) {
+          p.stamina = Math.max(0, (p.stamina ?? 100) - (17 * tactic.staminaDrain / arch.stamina) * dt);
+        } else {
+          p.stamina = Math.min(100, (p.stamina ?? 100) + (moving ? 9 : 20) * arch.stamina * dt);
+        }
       }
 
       if (!moving && (p.dashTimer || 0) <= 0) {
@@ -795,7 +884,7 @@ function startRoomLoop(roomId) {
         if (Math.hypot(p.vx, p.vy) < 6) { p.vx = 0; p.vy = 0; }
       } else if ((p.dashTimer || 0) <= 0) {
         const sp = Math.hypot(p.vx, p.vy);
-        const maxSp = PLAYER_MAX * staminaFactor;
+        const maxSp = PLAYER_MAX * arch.speed * sprintMult * burstMult * staminaFactor;
         if (sp > maxSp) {
           p.vx = p.vx / sp * maxSp;
           p.vy = p.vy / sp * maxSp;
@@ -805,10 +894,12 @@ function startRoomLoop(roomId) {
       p.x += p.vx * dt; p.y += p.vy * dt;
       if (!Number.isFinite(p.x)) p.x = 0;
       if (!Number.isFinite(p.y)) p.y = 0;
-      if (p.dashCd > 0) p.dashCd -= dt;
-      if (p.dashTimer > 0) p.dashTimer -= dt;
-      if (p.tackleCd > 0) p.tackleCd -= dt;
-      if (p.pickupLock > 0) p.pickupLock -= dt;
+      if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
+      if (p.dashTimer > 0) p.dashTimer = Math.max(0, p.dashTimer - dt);
+      if (p.tackleCd > 0) p.tackleCd = Math.max(0, p.tackleCd - dt);
+      if (p.abilityCd > 0) p.abilityCd = Math.max(0, p.abilityCd - dt);
+      if (p.abilityActive > 0) p.abilityActive = Math.max(0, p.abilityActive - dt);
+      if (p.pickupLock > 0) p.pickupLock = Math.max(0, p.pickupLock - dt);
     }
 
     const activeIds = Object.keys(room.players).filter(id => room.players[id].team !== 'spec');
@@ -821,14 +912,17 @@ function startRoomLoop(roomId) {
         const md = PLAYER_R * 2;
         if (d < md && d > 0.001) {
           const nx = dx / d, ny = dy / d, ov = md - d;
-          a.x -= nx * ov * 0.55; a.y -= ny * ov * 0.55;
-          c.x += nx * ov * 0.55; c.y += ny * ov * 0.55;
+          const aShield = (a.abilityActive > 0 && a.attrs?.ability === 'shield') ? 0.2 : 0.5;
+          const cShield = (c.abilityActive > 0 && c.attrs?.ability === 'shield') ? 0.2 : 0.5;
+          const totalW = aShield + cShield || 1;
+          a.x -= nx * ov * (aShield / totalW); a.y -= ny * ov * (aShield / totalW);
+          c.x += nx * ov * (cShield / totalW); c.y += ny * ov * (cShield / totalW);
           const relVx = c.vx - a.vx, relVy = c.vy - a.vy;
           const sepVel = relVx * nx + relVy * ny;
           if (sepVel < 0) {
             const imp = -sepVel * 0.65;
-            a.vx -= nx * imp; a.vy -= ny * imp;
-            c.vx += nx * imp; c.vy += ny * imp;
+            a.vx -= nx * imp * (aShield / totalW) * 2; a.vy -= ny * imp * (aShield / totalW) * 2;
+            c.vx += nx * imp * (cShield / totalW) * 2; c.vy += ny * imp * (cShield / totalW) * 2;
           }
         }
       }
@@ -870,7 +964,7 @@ function startRoomLoop(roomId) {
         b.vx = owner.vx;
         b.vy = owner.vy;
         b.z = 0; b.vz = 0; b.shotType = 'normal';
-        b.curve = 0;
+        b.curve = 0; b.spin = 0;
         b.powerGlow = 0;
         b.lastTeam = owner.team;
         recordTouch(room, b.ownerId);
@@ -882,9 +976,10 @@ function startRoomLoop(roomId) {
         if (b.curve && Math.abs(b.curve) > 1) {
           const perpX = -b.vy, perpY = b.vx;
           const pl = Math.hypot(perpX, perpY) || 1;
-          b.vx += (perpX / pl) * b.curve * dt * 1.45;
-          b.vy += (perpY / pl) * b.curve * dt * 1.45;
+          b.vx += (perpX / pl) * b.curve * dt * 1.48;
+          b.vy += (perpY / pl) * b.curve * dt * 1.48;
           b.curve *= Math.pow(0.89, dt * 60);
+          b.spin = b.curve * 0.05;
         }
         if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.75);
 
@@ -912,12 +1007,15 @@ function startRoomLoop(roomId) {
           resolveCircleRect(b, BALL_R, ox, oy, ow, oh, BOUNCE);
         }
 
+        resolveGoalPostBounce(b, bd.minX, bd.maxX, goalHalfH);
+
         const canPickup = (b.z || 0) < 22;
         if (canPickup) {
           for (const id of activeIds) {
             const p = room.players[id];
+            const magnetR = (p.abilityActive > 0 && p.attrs?.ability === 'magnet') ? 22 : 0;
             const d = Math.hypot(b.x - p.x, b.y - p.y);
-            if (d <= PLAYER_R + BALL_R + 5) {
+            if (d <= PLAYER_R + BALL_R + 5 + magnetR) {
               if (p.pickupLock > 0) {
                 const nx = d > 0.001 ? (b.x - p.x) / d : 1;
                 const ny = d > 0.001 ? (b.y - p.y) / d : 0;
@@ -944,11 +1042,20 @@ function startRoomLoop(roomId) {
       if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
       if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
 
+      // Step 1: Strictly verify goal line plane crossing BEFORE left/right boundary wall collision
       const scoringTeam = now >= (room.goalLockUntil || 0) ? checkGoalSegment(b, bd.minX, bd.maxX, goalHalfH) : null;
 
       if (!scoringTeam) {
-        if (b.x < bd.minX + BALL_R) { b.x = bd.minX + BALL_R; b.vx = Math.abs(b.vx) * BOUNCE; }
-        if (b.x > bd.maxX - BALL_R) { b.x = bd.maxX - BALL_R; b.vx = -Math.abs(b.vx) * BOUNCE; }
+        const insideLeftMouth = b.x < bd.minX && Math.abs(b.y) < goalHalfH - BALL_R * 0.2;
+        const insideRightMouth = b.x > bd.maxX && Math.abs(b.y) < goalHalfH - BALL_R * 0.2;
+        if (!insideLeftMouth && b.x < bd.minX + BALL_R) {
+          b.x = bd.minX + BALL_R;
+          b.vx = Math.abs(b.vx) * BOUNCE;
+        }
+        if (!insideRightMouth && b.x > bd.maxX - BALL_R) {
+          b.x = bd.maxX - BALL_R;
+          b.vx = -Math.abs(b.vx) * BOUNCE;
+        }
         continue;
       }
 
@@ -1007,7 +1114,7 @@ function startRoomLoop(roomId) {
         return;
       }
 
-      const goalLimit = MODES[room.mode]?.goals || 5;
+      const goalLimit = Number(room.settings.goalLimit) || MODES[room.mode]?.goals || 5;
       if (room.score[scoringTeam] >= goalLimit) { finishMatch(room, roomId); return; }
       resetPositions(room);
       break;
@@ -1020,7 +1127,7 @@ function startRoomLoop(roomId) {
       const snap = {
         balls: room.balls.map(b => ({
           x: b.x, y: b.y, vx: b.vx, vy: b.vy, z: b.z || 0,
-          curve: b.curve, powerGlow: b.powerGlow, ownerId: b.ownerId
+          spin: b.spin || 0, curve: b.curve, powerGlow: b.powerGlow, ownerId: b.ownerId
         })),
         players: {},
         timeLeft: room.timeLeft,
@@ -1033,8 +1140,9 @@ function startRoomLoop(roomId) {
         const p = room.players[id];
         snap.players[id] = {
           x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
-          stamina: p.stamina ?? 100,
-          dashCd: p.dashCd, tackleCd: p.tackleCd, dashTimer: p.dashTimer,
+          stamina: p.stamina ?? 100, sprinting: Boolean(p.sprinting),
+          dashCd: p.dashCd, tackleCd: p.tackleCd, abilityCd: p.abilityCd, abilityActive: p.abilityActive,
+          dashTimer: p.dashTimer,
           lastSeq: room.lastSeq[id] || 0
         };
       }
@@ -1056,7 +1164,7 @@ function computeMvpPlayer(playersPublic) {
   return { name: best.name, team: best.team, score: bestScore };
 }
 
-function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchId }) {
+function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchId, eloDelta = 0 }) {
   const claimKey = `${acc.id}:${matchId}`;
   if (db.claimedMatchAwards[claimKey]) {
     return { alreadyClaimed: true, earned: 0, breakdown: [], account: publicAccountPayload(acc) };
@@ -1067,17 +1175,17 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
   const breakdown = [];
 
   if (outcome === 'win') {
-    earned += 100;
+    earned += 120;
     acc.wins += 1;
     acc.daily.wins = (acc.daily.wins || 0) + 1;
     acc.season.quests.wins = (acc.season.quests.wins || 0) + 1;
-    breakdown.push('Победа: +100');
+    breakdown.push('Победа: +120');
   } else if (outcome === 'draw') {
-    earned += 50;
-    breakdown.push('Ничья: +50');
+    earned += 60;
+    breakdown.push('Ничья: +60');
   } else {
-    earned += 25;
-    breakdown.push('Участие: +25');
+    earned += 35;
+    breakdown.push('Участие: +35');
   }
 
   const g = Math.max(0, Math.min(20, parseInt(goals, 10) || 0));
@@ -1086,7 +1194,7 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
   const ps = Math.max(0, Math.min(80, parseInt(passes, 10) || 0));
 
   if (g > 0) {
-    const gCoins = g * 20;
+    const gCoins = g * 25;
     earned += gCoins;
     acc.goals += g;
     acc.daily.goals = (acc.daily.goals || 0) + g;
@@ -1094,7 +1202,7 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
     breakdown.push(`Голы (${g}): +${gCoins}`);
   }
   if (a > 0) {
-    const aCoins = a * 15;
+    const aCoins = a * 18;
     earned += aCoins;
     acc.assists += a;
     breakdown.push(`Ассисты (${a}): +${aCoins}`);
@@ -1105,25 +1213,30 @@ function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchI
   acc.passes += ps;
   acc.season.quests.passes = (acc.season.quests.passes || 0) + ps;
 
-  const xpGain = (outcome === 'win' ? 120 : (outcome === 'draw' ? 70 : 45)) + g * 25 + ps * 3;
+  if (eloDelta !== 0) {
+    acc.elo = Math.max(400, Math.min(3500, (acc.elo || 1000) + eloDelta));
+    breakdown.push(`ELO: ${eloDelta > 0 ? '+' : ''}${eloDelta} (${acc.elo})`);
+  }
+
+  const xpGain = (outcome === 'win' ? 130 : (outcome === 'draw' ? 75 : 50)) + g * 25 + ps * 3;
   acc.season.xp = (acc.season.xp || 0) + xpGain;
 
   if (!acc.daily.firstMatchDone) {
     acc.daily.firstMatchDone = true;
-    earned += 50;
-    breakdown.push('Первый матч дня: +50');
+    earned += 60;
+    breakdown.push('Первый матч дня: +60');
   }
 
   if (!acc.daily.questClaimed && (acc.daily.goals || 0) >= 3 && (acc.daily.wins || 0) >= 1) {
     acc.daily.questClaimed = true;
-    const qReward = acc.daily.questReward || 100;
+    const qReward = acc.daily.questReward || 120;
     earned += qReward;
     breakdown.push(`Ежедневное задание: +${qReward}`);
   }
 
   acc.coins += earned;
   scheduleSaveDB();
-  return { alreadyClaimed: false, earned, xpGain, breakdown, account: publicAccountPayload(acc) };
+  return { alreadyClaimed: false, earned, xpGain, eloDelta, breakdown, account: publicAccountPayload(acc) };
 }
 
 function finishMatch(room, roomId) {
@@ -1138,6 +1251,11 @@ function finishMatch(room, roomId) {
   const allPlayers = Object.values(room.players);
   const publicPlayers = getPlayersPublic(room);
   const mvp = computeMvpPlayer(publicPlayers);
+
+  const reds = allPlayers.filter(p => p.team === 'red');
+  const blues = allPlayers.filter(p => p.team === 'blue');
+  const redAvgElo = reds.length ? reds.reduce((s, p) => s + (p.elo || 1000), 0) / reds.length : 1000;
+  const blueAvgElo = blues.length ? blues.reduce((s, p) => s + (p.elo || 1000), 0) / blues.length : 1000;
 
   const rewardsBySocket = {};
   for (const [sid, p] of Object.entries(room.players)) {
@@ -1157,13 +1275,23 @@ function finishMatch(room, roomId) {
       acc.recentOpponents = (acc.recentOpponents || []).slice(0, 12);
 
       const outcome = p.team === 'spec' ? 'draw' : (winner === 'draw' ? 'draw' : (winner === p.team ? 'win' : 'loss'));
+      let eloDelta = 0;
+      if (!room.isPrivate && (p.team === 'red' || p.team === 'blue')) {
+        const myElo = acc.elo || 1000;
+        const oppElo = p.team === 'red' ? blueAvgElo : redAvgElo;
+        const expected = 1 / (1 + Math.pow(10, (oppElo - myElo) / 400));
+        const actual = outcome === 'win' ? 1 : (outcome === 'draw' ? 0.5 : 0);
+        eloDelta = Math.round(28 * (actual - expected));
+      }
+
       rewardsBySocket[sid] = awardMatchRewards(acc, {
         outcome,
         goals: p.stats?.goals || 0,
         assists: p.stats?.assists || 0,
         shots: p.stats?.shots || 0,
         passes: p.stats?.passes || 0,
-        matchId: room.matchUid || `${roomId}_${Date.now()}`
+        matchId: room.matchUid || `${roomId}_${Date.now()}`,
+        eloDelta
       });
     }
   }
@@ -1181,20 +1309,33 @@ function finishMatch(room, roomId) {
   });
 }
 
-// ==== MATCHMAKING (PUBLIC AUTO-MATCH ONLY, NEVER PULLS PRIVATE ROOMS) ====
-function findOpenPublicRoom(teamSize = 2) {
+// ==== MATCHMAKING (PUBLIC ELO + REGION MATCHMAKING, NEVER PULLS PRIVATE ROOMS) ====
+function findOpenPublicRoom(teamSize = 2, playerElo = 1000, region = 'eu') {
+  let bestRoom = null;
+  let bestScore = Infinity;
   for (const [, room] of Object.entries(rooms)) {
     if (room.isPrivate) continue;
     if ((room.settings.teamSize || 2) !== teamSize) continue;
-    const activeCount = Object.values(room.players).filter(p => p.team !== 'spec').length;
-    if (!room.started && !room.countingDown && activeCount < teamSize * 2 && Object.keys(room.players).length < MAX_PLAYERS) {
-      return room;
+    const activePlayers = Object.values(room.players).filter(p => p.team !== 'spec');
+    if (room.started || room.countingDown || activePlayers.length >= teamSize * 2 || Object.keys(room.players).length >= MAX_PLAYERS) {
+      continue;
+    }
+    const avgElo = activePlayers.length
+      ? activePlayers.reduce((sum, p) => sum + (p.elo || 1000), 0) / activePlayers.length
+      : playerElo;
+    const eloDiff = Math.abs(avgElo - playerElo);
+    if (eloDiff > 350 && activePlayers.length > 0) continue;
+    const regionPenalty = (room.settings.region && room.settings.region !== region) ? 180 : 0;
+    const score = eloDiff + regionPenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      bestRoom = room;
     }
   }
-  return null;
+  return bestRoom;
 }
 
-function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, isLandscape, preferredTeam = null }) {
+function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, archetype, isLandscape, preferredTeam = null }) {
   leaveCurrentRoom(socket);
   const safeSkin = acc.ownedSkins.includes(skin) ? skin : 'plain';
   const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
@@ -1208,6 +1349,8 @@ function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ball
   room.players[socket.id] = createPlayerState({
     accountId: acc.id,
     name: cleanName,
+    elo: acc.elo || 1000,
+    archetype: archetype || 'balanced',
     color: sanitizeColor(color),
     number: sanitizeNum(number),
     skin: safeSkin,
@@ -1215,7 +1358,7 @@ function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ball
     team
   });
   room.players[socket.id].ready = Boolean(isLandscape);
-  room.inputs[socket.id] = { x: 0, y: 0 };
+  room.inputs[socket.id] = { x: 0, y: 0, sprint: false };
   room.lastActiveAt = room.lastActiveAt || {};
   room.lastActiveAt[socket.id] = Date.now();
   socket.join(room.id);
@@ -1234,16 +1377,22 @@ io.on('connection', (socket) => {
 
   socket.on('authAccount', ({ accountId, sessionToken, nick }, cb) => {
     const verifiedId = verifyAccountToken(sessionToken, accountId);
-    const acc = verifiedId
-      ? getOrCreateAccount(verifiedId, nick)
-      : getOrCreateAccount(accountId, nick);
+    let acc = null;
+    if (verifiedId && db.accounts[verifiedId]) {
+      acc = getOrCreateAccount(verifiedId, nick);
+    } else if (!accountId || !db.accounts[String(accountId)]) {
+      acc = getOrCreateAccount(null, nick);
+    } else {
+      // Prevent hijacking an existing accountId without a valid HMAC session token
+      acc = getOrCreateAccount(null, nick);
+    }
     socket.accountId = acc.id;
     const token = signAccountToken(acc.id);
 
     let dailyBonus = 0;
     if (!acc.daily.loginClaimed) {
       acc.daily.loginClaimed = true;
-      dailyBonus = 30 + Math.floor(Math.random() * 71);
+      dailyBonus = 40 + Math.floor(Math.random() * 71);
       acc.daily.loginReward = dailyBonus;
       acc.coins += dailyBonus;
       scheduleSaveDB();
@@ -1272,8 +1421,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('requestOfflineSession', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация аккаунта' });
+    const matchId = 'OFF_' + crypto.randomBytes(6).toString('hex');
+    const sig = crypto.createHmac('sha256', SESSION_SECRET).update(`${acc.id}:${matchId}`).digest('hex');
+    offlineTokens[matchId] = { accountId: acc.id, createdAt: Date.now() };
+    if (typeof cb === 'function') cb({ ok: true, matchId, matchToken: sig });
+  });
+
   socket.on('saveCustomControls', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     if (payload.controls && typeof payload.controls === 'object') {
       acc.customControls = payload.controls;
       scheduleSaveDB();
@@ -1290,13 +1449,15 @@ io.on('connection', (socket) => {
         playersCount: Object.keys(r.players).length,
         teamSize: r.settings.teamSize || 2,
         mode: r.settings.mode || 'classic',
-        arena: r.settings.arena || 'classic'
+        arena: r.settings.arena || 'classic',
+        region: r.settings.region || 'eu'
       }));
     if (typeof cb === 'function') cb({ ok: true, rooms: list });
   });
 
   socket.on('rejoinMatch', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Ошибка авторизации' });
     const { isLandscape } = payload;
     let foundKey = null;
     let sess = null;
@@ -1318,6 +1479,8 @@ io.on('connection', (socket) => {
     room.players[socket.id] = createPlayerState({
       accountId: acc.id,
       name: acc.nick,
+      elo: acc.elo || 1000,
+      archetype: snap.archetype || 'balanced',
       color: snap.color || '#ff3366',
       number: snap.number || 7,
       skin: acc.ownedSkins.includes(snap.skin) ? snap.skin : 'plain',
@@ -1329,7 +1492,7 @@ io.on('connection', (socket) => {
     room.players[socket.id].stamina = snap.stamina ?? 100;
     room.players[socket.id].stats = snap.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
     room.players[socket.id].ready = isLandscape !== undefined ? Boolean(isLandscape) : true;
-    room.inputs[socket.id] = { x: 0, y: 0 };
+    room.inputs[socket.id] = { x: 0, y: 0, sprint: false };
     socket.join(room.id);
     socket.roomId = room.id;
 
@@ -1349,15 +1512,17 @@ io.on('connection', (socket) => {
   socket.on('findMatch', (payload = {}, cb) => {
     if (!allowRate('find_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
     const acc = resolveVerifiedAccount(socket, payload);
-    const { name, color, number, skin, ballSkin, celebration, isLandscape, teamSize, targetRoomId } = payload;
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация аккаунта' });
+    const { name, color, number, skin, ballSkin, celebration, archetype, isLandscape, teamSize, targetRoomId, region } = payload;
     const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
     const sz = [1, 2].includes(parseInt(teamSize, 10)) ? parseInt(teamSize, 10) : 2;
+    const safeRegion = REGIONS.includes(region) ? region : 'eu';
 
     let room = null;
     if (targetRoomId && rooms[targetRoomId] && !rooms[targetRoomId].isPrivate) {
       room = rooms[targetRoomId];
     } else {
-      room = findOpenPublicRoom(sz);
+      room = findOpenPublicRoom(sz, acc.elo || 1000, safeRegion);
     }
     if (!room) {
       const id = genRoomId('PUB_');
@@ -1370,15 +1535,17 @@ io.on('connection', (socket) => {
         loop: null, loopRunning: false, host: socket.id,
         started: false, countingDown: false, countdownTimer: null,
         settings: {
-          arena: 'classic', mode: 'classic', matchDuration: 120,
-          weather: 'clear', ballSkin: safeBallSkin, teamSize: sz,
-          arenaColor: '#24662c', allowOvertime: true, goldenGoal: false
+          arena: 'classic', mode: 'classic', matchDuration: 120, goalLimit: 5,
+          weather: 'clear', ballSkin: safeBallSkin, teamSize: sz, region: safeRegion,
+          redFormation: '1-1', blueFormation: '1-1',
+          redTactic: 'balanced', blueTactic: 'balanced',
+          arenaColor: '#24662c', allowOvertime: true, goldenGoal: false, allowAbilities: true
         }
       };
       rooms[id] = room;
     }
 
-    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, isLandscape });
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, archetype, isLandscape });
     if (typeof cb === 'function') {
       cb({ ok: true, roomId: room.id, isPrivate: false, inviteCode: null, players: getPlayersPublic(room), host: room.host, settings: room.settings });
     }
@@ -1388,9 +1555,11 @@ io.on('connection', (socket) => {
   socket.on('createPrivateRoom', (payload = {}, cb) => {
     if (!allowRate('priv_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
     const acc = resolveVerifiedAccount(socket, payload);
-    const { name, color, number, skin, ballSkin, celebration, isLandscape, teamSize } = payload;
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация аккаунта' });
+    const { name, color, number, skin, ballSkin, celebration, archetype, isLandscape, teamSize, region } = payload;
     const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
     const sz = [1, 2].includes(parseInt(teamSize, 10)) ? parseInt(teamSize, 10) : 2;
+    const safeRegion = REGIONS.includes(region) ? region : 'eu';
 
     const id = genRoomId('PRV_');
     const code = genInviteCode();
@@ -1404,15 +1573,17 @@ io.on('connection', (socket) => {
       loop: null, loopRunning: false, host: socket.id,
       started: false, countingDown: false, countdownTimer: null,
       settings: {
-        arena: 'classic', mode: 'classic', matchDuration: 120,
-        weather: 'clear', ballSkin: safeBallSkin, teamSize: sz,
-        arenaColor: '#24662c', allowOvertime: true, goldenGoal: false
+        arena: 'classic', mode: 'classic', matchDuration: 120, goalLimit: 5,
+        weather: 'clear', ballSkin: safeBallSkin, teamSize: sz, region: safeRegion,
+        redFormation: '1-1', blueFormation: '1-1',
+        redTactic: 'balanced', blueTactic: 'balanced',
+        arenaColor: '#24662c', allowOvertime: true, goldenGoal: false, allowAbilities: true
       }
     };
     rooms[id] = room;
     privateRooms[code] = id;
 
-    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, isLandscape, preferredTeam: 'red' });
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, archetype, isLandscape, preferredTeam: 'red' });
     if (typeof cb === 'function') {
       cb({
         ok: true,
@@ -1429,7 +1600,8 @@ io.on('connection', (socket) => {
   socket.on('joinPrivateRoom', (payload = {}, cb) => {
     if (!allowRate('join_priv_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
     const acc = resolveVerifiedAccount(socket, payload);
-    const { codeOrRoomId, name, color, number, skin, ballSkin, celebration, isLandscape } = payload;
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация аккаунта' });
+    const { codeOrRoomId, name, color, number, skin, ballSkin, celebration, archetype, isLandscape } = payload;
 
     const raw = String(codeOrRoomId || '').trim().toUpperCase();
     const targetRoomId = privateRooms[raw] || (rooms[raw] && rooms[raw].isPrivate ? raw : null);
@@ -1447,19 +1619,12 @@ io.on('connection', (socket) => {
     const hostPlayer = room.players[room.host];
     const hostAccId = hostPlayer ? hostPlayer.accountId : null;
     const hostAcc = hostAccId ? db.accounts[hostAccId] : null;
-    const isAllowed = room.allowedAccounts?.has(acc.id) ||
-                      acc.id === hostAccId ||
-                      (hostAcc && Array.isArray(hostAcc.friends) && hostAcc.friends.includes(acc.id));
-
-    if (!isAllowed) {
-      return cb && cb({ ok: false, error: 'Доступ запрещён: требуется приглашение или дружба с создателем комнаты' });
-    }
     if (hostAcc && Array.isArray(hostAcc.blocked) && hostAcc.blocked.includes(acc.id)) {
       return cb && cb({ ok: false, error: 'Вы заблокированы создателем комнаты' });
     }
 
     room.allowedAccounts.add(acc.id);
-    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, isLandscape });
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, archetype, isLandscape });
     if (typeof cb === 'function') {
       cb({
         ok: true,
@@ -1477,6 +1642,7 @@ io.on('connection', (socket) => {
   // ==== FRIENDS, SEARCH, BLOCKS, REPORTS & INVITES ====
   socket.on('searchPlayers', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const q = String(payload.query || '').trim().toLowerCase();
     const list = Object.values(db.accounts)
       .filter(u => u.id !== acc.id && !(acc.blocked || []).includes(u.id))
@@ -1485,6 +1651,7 @@ io.on('connection', (socket) => {
       .map(u => ({
         id: u.id,
         nick: u.nick,
+        elo: u.elo || 1000,
         wins: u.wins,
         goals: u.goals,
         status: getUserStatus(u.id),
@@ -1498,6 +1665,7 @@ io.on('connection', (socket) => {
   socket.on('sendFriendRequest', (payload = {}, cb) => {
     if (!allowRate('fr_' + socket.id, 5, 8)) return cb && cb({ ok: false, error: 'Слишком много запросов' });
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const cleanTarget = String(payload.targetId || '').trim();
     if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный ID игрока' });
     const targetAcc = db.accounts[cleanTarget];
@@ -1536,6 +1704,7 @@ io.on('connection', (socket) => {
 
   socket.on('respondFriendRequest', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const cleanFrom = String(payload.fromId || '').trim();
     const otherAcc = db.accounts[cleanFrom];
     acc.friendRequestsIn = (acc.friendRequestsIn || []).filter(x => x !== cleanFrom);
@@ -1554,6 +1723,7 @@ io.on('connection', (socket) => {
 
   socket.on('removeFriend', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const cleanFriend = String(payload.friendId || '').trim();
     acc.friends = (acc.friends || []).filter(x => x !== cleanFriend);
     const otherAcc = db.accounts[cleanFriend];
@@ -1568,6 +1738,7 @@ io.on('connection', (socket) => {
 
   socket.on('blockPlayer', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const cleanTarget = String(payload.targetId || '').trim();
     if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный ID' });
     if (!(acc.blocked || []).includes(cleanTarget)) acc.blocked.push(cleanTarget);
@@ -1584,6 +1755,7 @@ io.on('connection', (socket) => {
 
   socket.on('unblockPlayer', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const cleanTarget = String(payload.targetId || '').trim();
     acc.blocked = (acc.blocked || []).filter(x => x !== cleanTarget);
     scheduleSaveDB();
@@ -1593,6 +1765,7 @@ io.on('connection', (socket) => {
   socket.on('reportPlayer', (payload = {}, cb) => {
     if (!allowRate('rep_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком много жалоб' });
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const cleanTarget = String(payload.targetId || '').trim();
     const cleanReason = sanitize(payload.reason || 'Неспортивное поведение', 'Жалоба').slice(0, 80);
     if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный игрок' });
@@ -1600,11 +1773,11 @@ io.on('connection', (socket) => {
     if (typeof cb === 'function') cb({ ok: true });
   });
 
-  // Invite friend to private room: even if inviter was in another room, cleanly moves inviter into a fresh private room for the invite
   socket.on('inviteFriendToMatch', (payload = {}, cb) => {
     if (!allowRate('inv_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Слишком много приглашений' });
     const acc = resolveVerifiedAccount(socket, payload);
-    const { friendId, name, color, number, skin, ballSkin, celebration, isLandscape } = payload;
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
+    const { friendId, name, color, number, skin, ballSkin, celebration, archetype, isLandscape } = payload;
     const cleanFriend = String(friendId || '').trim();
     if (!(acc.friends || []).includes(cleanFriend)) {
       return cb && cb({ ok: false, error: 'Игрок не в вашем списке друзей' });
@@ -1631,14 +1804,16 @@ io.on('connection', (socket) => {
         loop: null, loopRunning: false, host: socket.id,
         started: false, countingDown: false, countdownTimer: null,
         settings: {
-          arena: 'classic', mode: 'classic', matchDuration: 120,
+          arena: 'classic', mode: 'classic', matchDuration: 120, goalLimit: 5,
           weather: 'clear', ballSkin: acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic',
-          teamSize: 2, arenaColor: '#24662c', allowOvertime: true, goldenGoal: false
+          teamSize: 2, region: 'eu', redFormation: '1-1', blueFormation: '1-1',
+          redTactic: 'balanced', blueTactic: 'balanced',
+          arenaColor: '#24662c', allowOvertime: true, goldenGoal: false, allowAbilities: true
         }
       };
       rooms[id] = room;
       privateRooms[code] = id;
-      attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, isLandscape, preferredTeam: 'red' });
+      attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, archetype, isLandscape, preferredTeam: 'red' });
     } else {
       room.allowedAccounts = room.allowedAccounts || new Set([acc.id]);
       room.allowedAccounts.add(cleanFriend);
@@ -1690,6 +1865,7 @@ io.on('connection', (socket) => {
 
   socket.on('claimSeasonReward', (payload = {}, cb) => {
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const { kind, key } = payload;
     if (kind === 'tier') {
       const tier = parseInt(key, 10);
@@ -1701,14 +1877,14 @@ io.on('connection', (socket) => {
         return cb && cb({ ok: false, error: 'Награда уже получена' });
       }
       acc.season.claimedTiers.push(tier);
-      const rewardCoins = tier * 100;
+      const rewardCoins = tier * 120;
       acc.coins += rewardCoins;
       scheduleSaveDB();
       return cb && cb({ ok: true, rewardCoins, account: publicAccountPayload(acc) });
     } else if (kind === 'quest') {
       const qKey = String(key || '');
       const targets = { goals: 5, passes: 15, wins: 2 };
-      const rewards = { goals: 120, passes: 90, wins: 150 };
+      const rewards = { goals: 140, passes: 110, wins: 180 };
       if (!targets[qKey]) return cb && cb({ ok: false, error: 'Задание не найдено' });
       if (acc.season.quests.claimed[qKey]) return cb && cb({ ok: false, error: 'Задание уже выполнено' });
       if ((acc.season.quests[qKey] || 0) < targets[qKey]) {
@@ -1774,10 +1950,19 @@ io.on('connection', (socket) => {
     if (settings.mode && MODES[settings.mode]) room.settings.mode = settings.mode;
     if (typeof settings.allowOvertime === 'boolean') room.settings.allowOvertime = settings.allowOvertime;
     if (typeof settings.goldenGoal === 'boolean') room.settings.goldenGoal = settings.goldenGoal;
+    if (typeof settings.allowAbilities === 'boolean') room.settings.allowAbilities = settings.allowAbilities;
+    if (settings.goalLimit) {
+      const gl = parseInt(settings.goalLimit, 10);
+      if ([1, 3, 5, 7, 10].includes(gl)) room.settings.goalLimit = gl;
+    }
     if (settings.matchDuration) {
       const dur = parseInt(settings.matchDuration, 10);
-      if ([60, 120, 180, 300].includes(dur)) room.settings.matchDuration = dur;
+      if ([60, 120, 180, 300, 420].includes(dur)) room.settings.matchDuration = dur;
     }
+    if (settings.redFormation && FORMATIONS[settings.redFormation]) room.settings.redFormation = settings.redFormation;
+    if (settings.blueFormation && FORMATIONS[settings.blueFormation]) room.settings.blueFormation = settings.blueFormation;
+    if (settings.redTactic && TACTICS[settings.redTactic]) room.settings.redTactic = settings.redTactic;
+    if (settings.blueTactic && TACTICS[settings.blueTactic]) room.settings.blueTactic = settings.blueTactic;
     if (settings.teamSize) {
       const sz = parseInt(settings.teamSize, 10);
       if ([1, 2].includes(sz)) {
@@ -1808,6 +1993,7 @@ io.on('connection', (socket) => {
       if (rooms[roomId].players[socket.id]) rooms[roomId].players[socket.id].afkWarned = false;
     }
     inp.x = x; inp.y = y;
+    inp.sprint = Boolean(data.sprint);
     if (data.seq !== undefined && Number.isFinite(Number(data.seq))) {
       rooms[roomId].lastSeq[socket.id] = Number(data.seq);
     }
@@ -1825,7 +2011,13 @@ io.on('connection', (socket) => {
     if (room.lastActiveAt) room.lastActiveAt[socket.id] = Date.now();
     p.afkWarned = false;
 
-    if (type === 'dash') {
+    if (type === 'ability') {
+      if (room.settings.allowAbilities === false || p.abilityCd > 0) return;
+      p.abilityCd = ABILITY_CD;
+      p.abilityActive = 3.5;
+      p.stamina = Math.min(100, (p.stamina ?? 100) + 25);
+      io.to(room.id).emit('abilityUsed', { id: socket.id, ability: p.attrs?.ability || 'burst' });
+    } else if (type === 'dash') {
       if (p.dashCd > 0 || (p.stamina ?? 100) < 20) return;
       p.stamina = Math.max(0, (p.stamina ?? 100) - 24);
       p.dashCd = DASH_CD;
@@ -1856,12 +2048,12 @@ io.on('connection', (socket) => {
           recordTouch(room, socket.id);
         }
       }
-    } else if (type === 'kick' || type === 'pass' || type === 'lob' || type === 'finesse') {
+    } else if (type === 'kick' || type === 'pass' || type === 'lob' || type === 'finesse' || type === 'knuckle') {
       let bestB = null, bestD = 9999;
       for (const b of room.balls) {
         if (b.ownerId === socket.id) { bestB = b; break; }
         const d = Math.hypot(b.x - p.x, b.y - p.y);
-        const range = (type === 'kick' || type === 'finesse' ? 92 : 106) + PLAYER_R + BALL_R;
+        const range = (type === 'kick' || type === 'finesse' || type === 'knuckle' ? 92 : 106) + PLAYER_R + BALL_R;
         if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
       }
       if (!bestB) return;
@@ -1901,6 +2093,7 @@ io.on('connection', (socket) => {
   socket.on('buySkin', (payload = {}, cb) => {
     if (!allowRate('shop_' + socket.id, 5, 8)) return cb && cb({ ok: false, error: 'Слишком много запросов' });
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const { category, skinId } = payload;
     if (category === 'player') {
       const item = PLAYER_SKIN_CATALOG[skinId];
@@ -1927,17 +2120,29 @@ io.on('connection', (socket) => {
   socket.on('claimOfflineMatch', (payload = {}, cb) => {
     if (!allowRate('off_claim_' + socket.id, 2, 4)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
     const acc = resolveVerifiedAccount(socket, payload);
-    const { matchId, outcome, goals, assists, shots, passes } = payload;
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация аккаунта' });
+    const { matchId, matchToken, outcome, goals, assists, shots, passes } = payload;
     const safeMatchId = String(matchId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
     if (!safeMatchId || !safeMatchId.startsWith('OFF_')) {
       return cb && cb({ ok: false, error: 'Некорректный ID офлайн-матча' });
     }
-    const g = Math.max(0, Math.min(15, parseInt(goals, 10) || 0));
-    const a = Math.max(0, Math.min(15, parseInt(assists, 10) || 0));
-    const s = Math.max(0, Math.min(60, parseInt(shots, 10) || 0));
-    const ps = Math.max(0, Math.min(60, parseInt(passes, 10) || 0));
-    if (g > s + 2) {
-      return cb && cb({ ok: false, error: 'Несоответствие статистики ударов и голов' });
+    const issued = offlineTokens[safeMatchId];
+    const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(`${acc.id}:${safeMatchId}`).digest('hex');
+    if (!issued || issued.accountId !== acc.id || matchToken !== expectedSig) {
+      return cb && cb({ ok: false, error: 'Недействительный токен офлайн-сессии' });
+    }
+    const elapsedMs = Date.now() - issued.createdAt;
+    delete offlineTokens[safeMatchId];
+    if (elapsedMs < 10000) {
+      return cb && cb({ ok: false, error: 'Матч завершён слишком быстро' });
+    }
+
+    const g = Math.max(0, Math.min(12, parseInt(goals, 10) || 0));
+    const a = Math.max(0, Math.min(12, parseInt(assists, 10) || 0));
+    const s = Math.max(0, Math.min(50, parseInt(shots, 10) || 0));
+    const ps = Math.max(0, Math.min(50, parseInt(passes, 10) || 0));
+    if (g > s + 1 || a > g + 2) {
+      return cb && cb({ ok: false, error: 'Несоответствие игровой статистики' });
     }
     const safeOutcome = ['win', 'draw', 'loss'].includes(outcome) ? outcome : 'loss';
     const res = awardMatchRewards(acc, { outcome: safeOutcome, goals: g, assists: a, shots: s, passes: ps, matchId: safeMatchId });
@@ -1947,19 +2152,22 @@ io.on('connection', (socket) => {
   socket.on('redeemPromo', (payload = {}, cb) => {
     if (!allowRate('promo_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Подождите перед следующей попыткой' });
     const acc = resolveVerifiedAccount(socket, payload);
+    if (!acc) return cb && cb({ ok: false, error: 'Требуется авторизация' });
     const rawCode = String(payload.code || '').trim();
     if (!rawCode) return cb && cb({ ok: false, error: 'Введите промокод' });
 
-    const hash = crypto.createHash('sha256').update(rawCode).digest('hex');
-    if (hash === ADMIN_SECRET_HASH) {
-      adminSessions.add(socket.id);
-      logAdminAction(acc.id, 'ADMIN_LOGIN', { nick: acc.nick, socketId: socket.id });
-      return cb && cb({
-        ok: true,
-        isAdmin: true,
-        message: 'Доступ к панели администратора открыт',
-        account: publicAccountPayload(acc)
-      });
+    if (ADMIN_SECRET_HASH) {
+      const hash = crypto.createHash('sha256').update(rawCode).digest('hex');
+      if (hash === ADMIN_SECRET_HASH) {
+        adminSessions.add(socket.id);
+        logAdminAction(acc.id, 'ADMIN_LOGIN', { nick: acc.nick, socketId: socket.id });
+        return cb && cb({
+          ok: true,
+          isAdmin: true,
+          message: 'Доступ к панели администратора открыт',
+          account: publicAccountPayload(acc)
+        });
+      }
     }
 
     const upperCode = rawCode.toUpperCase();
@@ -2067,8 +2275,10 @@ io.on('connection', (socket) => {
     if (!requireAdmin(cb)) return;
     const cleanCode = String(code || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20);
     if (!cleanCode) return cb && cb({ ok: false, error: 'Некорректный код' });
-    const hash = crypto.createHash('sha256').update(cleanCode).digest('hex');
-    if (hash === ADMIN_SECRET_HASH) return cb && cb({ ok: false, error: 'Зарезервированный код' });
+    if (ADMIN_SECRET_HASH) {
+      const hash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+      if (hash === ADMIN_SECRET_HASH) return cb && cb({ ok: false, error: 'Зарезервированный код' });
+    }
 
     const limit = Math.max(1, parseInt(maxUses, 10) || 100);
     const promoType = ['coins', 'common_skin', 'skin'].includes(type) ? type : 'coins';
@@ -2119,4 +2329,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Ball Brawl Pro v11 on port ' + PORT));
+server.listen(PORT, () => console.log('Ball Brawl Pro v12 on port ' + PORT));
