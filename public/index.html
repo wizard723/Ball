@@ -64,7 +64,7 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 .act-btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid rgba(255,255,255,.4);color:#fff;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s, background .08s, opacity .15s;touch-action:none}
 .act-btn .lbl2{font-size:9px;opacity:.85;font-weight:600;margin-top:1px}
 .act-btn.on{transform:scale(.9)}
-.act-btn.tired{opacity:.35;filter:grayscale(.8);pointer-events:none}
+.act-btn.cd{opacity:.45}
 .aim-arrow{position:absolute;top:-16px;font-size:12px;color:#ffcc00;pointer-events:none;transform-origin:center;transition:transform .05s}
 #btnKick{width:70px;height:70px;right:14px;bottom:14px;background:rgba(255,51,102,.55);font-size:20px}
 #btnPass{width:54px;height:54px;right:96px;bottom:24px;background:rgba(51,170,255,.55);font-size:14px}
@@ -241,11 +241,9 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 <div id="tutorialPanel">
   <div class="title" style="font-size:20px">📖 Как играть</div>
   <h3>Управление</h3>
-  <p>🕹 <b>Левый джойстик</b> — движение. Удерживай >0.5с для <b>спринта</b> (после него 1с усталости). Двойной тап — <b>рывок</b>.</p>
-  <p>⚽ <b>Удар / Пас</b> — тяни в сторону для направления и подкрутки. Также работает <b>свайп в правой части экрана</b>.</p>
-  <h3>Правила</h3>
-  <p>🧲 <b>Магнит</b> притягивает мяч в радиусе 320. Столкновение на спринте даёт мощный автоудар.</p>
-  <p>🚩 Выход за боковую линию у ворот — <b>угловой</b>, в центре поля — <b>вбрасывание</b>.</p>
+  <p>🕹 <b>Левый джойстик</b> — движение. Двойной тап по джойстику или кнопка <b>Рывок</b> — быстрое ускорение.</p>
+  <p>⚽ <b>Дриблинг</b> — подойди к мячу, и он прикрепится спереди. Отобрать его соперник может только кнопкой <b>Отбор</b>.</p>
+  <p>🎯 <b>Удар / Пас</b> — тяни в сторону для направления и подкрутки. Также работает <b>свайп в правой части экрана</b>.</p>
   <button class="btn primary" id="btnCloseTutorial" style="margin-top:20px">Понятно</button>
 </div>
 
@@ -310,7 +308,6 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 (() => {
 'use strict';
 
-// ==== PWA MANIFEST & SERVICE WORKER ====
 try {
   const manifest = {
     name: 'Ball Brawl v7', short_name: 'Ball Brawl', start_url: '.',
@@ -323,6 +320,8 @@ try {
 } catch (e) {}
 
 const PLAYER_R = 30, BALL_R = 20;
+const PLAYER_MAX = 205, DASH_IMPULSE = 380;
+const DRIBBLE_DIST = PLAYER_R + BALL_R + 4;
 const ARENAS = {
   classic:   { w: 1800, h: 1100 },
   ice:       { w: 1800, h: 1100 },
@@ -354,7 +353,6 @@ const S = {
   ballTrail: [], sprintParticles: [], lastToucherId: null
 };
 
-// ==== LOAD/SAVE ====
 try {
   const saved = JSON.parse(localStorage.getItem('bb5_stats') || '{}');
   Object.assign(S.achievements, saved.achievements || {});
@@ -384,7 +382,6 @@ function saveAll() {
   } catch (e) {}
 }
 
-// ==== CANVAS & WEATHER CACHE ====
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let W, H, DPR;
@@ -449,7 +446,7 @@ function addShake(amount) {
   S.cam.shake = Math.min(18, Math.max(S.cam.shake, amount));
 }
 
-// ==== AUDIO (AudioBuffer) ====
+// ==== AUDIO ====
 let audioCtx = null;
 const sfxBuffers = {};
 function createToneBuffer(ctx, freqs, dur, type = 'sine') {
@@ -530,7 +527,6 @@ BALL_SKIN_DEFS.forEach((sk) => {
 
 $('nick').value = S.nick; $('numberInput').value = S.number;
 
-// ==== SETTINGS & VOICE ====
 function bindToggle(id, getter, setter) {
   const el = $(id); if (!el) return;
   el.classList.toggle('on', getter());
@@ -605,23 +601,22 @@ socket.on('lobbyUpdate', (d) => {
 });
 
 socket.on('screenShake', (d) => { addShake(d.intensity || 8); });
-socket.on('setPiece', (d) => { toast(d.type === 'corner' ? '🚩 Угловой!' : '🙌 Вбрасывание!'); });
 
 socket.on('state', (snap) => {
   S.balls = snap.balls;
   for (const id in snap.players) {
     if (!S.players[id]) S.players[id] = {};
     const s = snap.players[id], p = S.players[id];
-    p.dashCd = s.dashCd; p.tackleCd = s.tackleCd;
-    p.sprinting = s.sprinting; p.fatigueTimer = s.fatigueTimer;
+    p.dashCd = s.dashCd; p.tackleCd = s.tackleCd; p.dashTimer = s.dashTimer;
+    if (s.facing !== undefined) p.facing = s.facing;
 
     if (id === S.myId && p.team !== 'spec') {
       S.pendingInputs = S.pendingInputs.filter(inp => inp.seq > (s.lastSeq || 0));
       let predX = s.x, predY = s.y, predVx = s.vx, predVy = s.vy;
       for (const inp of S.pendingInputs) {
-        predVx += inp.x * 750 * inp.dt; predVy += inp.y * 750 * inp.dt;
+        predVx += inp.x * 680 * inp.dt; predVy += inp.y * 680 * inp.dt;
         const sp = Math.hypot(predVx, predVy);
-        if (sp > 260) { predVx = predVx / sp * 260; predVy = predVy / sp * 260; }
+        if (sp > PLAYER_MAX && (p.dashTimer || 0) <= 0) { predVx = predVx / sp * PLAYER_MAX; predVy = predVy / sp * PLAYER_MAX; }
         predX += predVx * inp.dt; predY += predVy * inp.dt;
       }
       if (p.x === undefined || Math.hypot(predX - p.x, predY - p.y) > 50) {
@@ -824,12 +819,12 @@ function startCountdown() {
 function startOnlineGame(players, settings) {
   stopGameLoop(); S.modeType = 'online'; lobby.classList.add('hidden'); menu.classList.add('hidden');
   hud.classList.remove('hidden'); document.body.classList.add('in-match'); S.inGame = true; S.settings = settings || S.settings;
-  S.players = {}; players.forEach(p => { S.players[p.id] = { ...p, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, tackleCd: 0, sprinting: false, fatigueTimer: 0 }; });
+  S.players = {}; players.forEach(p => { S.players[p.id] = { ...p, x: 0, y: 0, vx: 0, vy: 0, facing: p.team === 'red' ? 0 : Math.PI, dashCd: 0, tackleCd: 0, dashTimer: 0 }; });
   const isSpec = S.players[S.myId]?.team === 'spec';
   $('actionZone').style.display = isSpec ? 'none' : 'block'; $('joyZone').style.display = isSpec ? 'none' : 'block';
   $('pingBox').style.display = 'block'; S.scores = { red: 0, blue: 0 }; S.timeLeft = S.settings.mode === 'time' ? 120 : 0;
   updateScoreUI(); $('timeBox').style.display = S.settings.mode === 'time' ? 'block' : 'none';
-  S.balls = S.settings.mode === 'chaos' ? [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0 }, { x: 0, y: -200, vx: 0, vy: 0, curve: 0, powerGlow: 0 }, { x: 0, y: 200, vx: 0, vy: 0, curve: 0, powerGlow: 0 }] : [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0 }];
+  S.balls = S.settings.mode === 'chaos' ? [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }, { x: 0, y: -200, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }, { x: 0, y: 200, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }] : [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }];
   S.replayFrames = []; S.ballTrail = []; S.sprintParticles = []; S.pendingInputs = [];
   S.lastFrame = performance.now(); S.rafId = requestAnimationFrame(gameLoop);
   if (S.voice && !recognition) startVoiceRecognition();
@@ -842,18 +837,18 @@ function startOfflineMode(modeType) {
   $('actionZone').style.display = isLocal2P ? 'none' : 'block'; $('joyZone').style.display = isLocal2P ? 'none' : 'block';
   $('pingBox').style.display = 'none'; $('timeBox').style.display = 'none';
   S.inGame = true; S.myId = 'p1'; S.players = {}; const arena = ARENAS[S.settings.arena];
-  S.players['p1'] = { x: -(arena.w / 2) + 150, y: 0, vx: 0, vy: 0, name: isLocal2P ? 'Игрок 1' : S.nick, color: S.color, team: 'red', number: S.number, skin: S.skin, dashCd: 0, tackleCd: 0, sprinting: false, fatigueTimer: 0, joyHoldTime: 0 };
-  if (isLocal2P) S.players['p2'] = { x: (arena.w / 2) - 150, y: 0, vx: 0, vy: 0, name: 'Игрок 2', color: '#33aaff', team: 'blue', number: 10, skin: 'plain', dashCd: 0, tackleCd: 0, sprinting: false, fatigueTimer: 0 };
-  else if (S.trainBot.enabled || modeType === 'penalty') S.players['bot'] = { x: (arena.w / 2) - 150, y: 0, vx: 0, vy: 0, name: modeType === 'penalty' ? 'Вратарь' : 'Бот', color: '#33aaff', team: 'blue', number: 99, skin: 'plain', dashCd: 0, tackleCd: 0, sprinting: false, fatigueTimer: 0, gkGuessY: 0 };
+  S.players['p1'] = { x: -(arena.w / 2) + 150, y: 0, vx: 0, vy: 0, facing: 0, name: isLocal2P ? 'Игрок 1' : S.nick, color: S.color, team: 'red', number: S.number, skin: S.skin, dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0 };
+  if (isLocal2P) S.players['p2'] = { x: (arena.w / 2) - 150, y: 0, vx: 0, vy: 0, facing: Math.PI, name: 'Игрок 2', color: '#33aaff', team: 'blue', number: 10, skin: 'plain', dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0 };
+  else if (S.trainBot.enabled || modeType === 'penalty') S.players['bot'] = { x: (arena.w / 2) - 150, y: 0, vx: 0, vy: 0, facing: Math.PI, name: modeType === 'penalty' ? 'Вратарь' : 'Бот', color: '#33aaff', team: 'blue', number: 99, skin: 'plain', dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0 };
   S.scores = { red: 0, blue: 0 }; S.penaltyShots = 0; S.replayFrames = []; S.ballTrail = []; S.sprintParticles = [];
   resetOfflinePositions(); updateScoreUI(); S.lastFrame = performance.now(); S.rafId = requestAnimationFrame(gameLoop);
 }
 
 function resetOfflinePositions() {
   const arena = ARENAS[S.settings.arena], p1 = S.players['p1'], p2 = S.players['p2'] || S.players['bot'];
-  if (p1) { p1.x = -(arena.w / 2) + 150; p1.y = 0; p1.vx = 0; p1.vy = 0; p1.sprinting = false; p1.fatigueTimer = 0; p1.joyHoldTime = 0; }
-  if (p2) { p2.x = (arena.w / 2) - 150; p2.y = 0; p2.vx = 0; p2.vy = 0; p2.gkGuessY = (Math.random() - 0.5) * 220; }
-  S.balls = [{ x: S.modeType === 'penalty' ? -(arena.w / 2) + 340 : 0, y: 0, vx: 0, vy: 0, rot: 0, curve: 0, powerGlow: 0 }];
+  if (p1) { p1.x = -(arena.w / 2) + 150; p1.y = 0; p1.vx = 0; p1.vy = 0; p1.facing = 0; p1.pickupLock = 0; p1.dashTimer = 0; }
+  if (p2) { p2.x = (arena.w / 2) - 150; p2.y = 0; p2.vx = 0; p2.vy = 0; p2.facing = Math.PI; p2.pickupLock = 0; p2.dashTimer = 0; }
+  S.balls = [{ x: S.modeType === 'penalty' ? -(arena.w / 2) + 340 : 0, y: 0, vx: 0, vy: 0, rot: 0, curve: 0, powerGlow: 0, ownerId: null }];
   S.ballTrail = [];
 }
 
@@ -949,13 +944,14 @@ document.querySelectorAll('.qchat-btn').forEach(b => b.addEventListener('click',
   $('quickChatBar').classList.add('hidden');
 }));
 
-// ==== CONTROLS: JOYSTICK (DOUBLE TAP DASH + SPRINT), SWIPE SHOOT & BUTTONS ====
+// ==== CONTROLS ====
 const keys = {};
 addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (!S.inGame) return;
   if (e.code === 'Space') doOfflineAction('p1', 'kick', 0, 0, 1);
   if (e.code === 'ShiftLeft') doOfflineAction('p1', 'dash', 0, 0, 1);
+  if (e.code === 'KeyE') doOfflineAction('p1', 'tackle', 0, 0, 1);
   if (S.modeType === 'local2p') {
     if (e.code === 'Enter') doOfflineAction('p2', 'kick', 0, 0, 1);
     if (e.code === 'Slash') doOfflineAction('p2', 'dash', 0, 0, 1);
@@ -1024,11 +1020,10 @@ joyZone.addEventListener('mousedown', (e) => { if (S.inGame) { mouseJoy = true; 
 addEventListener('mousemove', (e) => { if (mouseJoy) joyMoveH(e.clientX, e.clientY); });
 addEventListener('mouseup', () => { if (mouseJoy) { mouseJoy = false; joyEndH(); } });
 
-// Свайп по правой половине экрана в любом месте = направленный удар
 let rightSwipeId = null, rightSwipeStart = { x: 0, y: 0 }, rightSwipeTime = 0;
 actionZone.addEventListener('touchstart', (e) => {
   if (!S.inGame || S.modeType === 'local2p') return;
-  if (e.target.closest('.act-btn')) return; // Кнопки обрабатываются отдельно
+  if (e.target.closest('.act-btn')) return;
   const t = e.changedTouches[0];
   rightSwipeId = t.identifier; rightSwipeStart = { x: t.clientX, y: t.clientY }; rightSwipeTime = performance.now();
 }, { passive: false });
@@ -1052,9 +1047,10 @@ actionZone.addEventListener('touchend', (e) => {
 
 function updateDashButtonState() {
   const me = S.players[S.myId];
-  const tired = Boolean(me && me.fatigueTimer > 0);
-  btnDash.classList.toggle('tired', tired);
-  joyBase.classList.toggle('sprinting', Boolean(me && me.sprinting));
+  const onCd = Boolean(me && me.dashCd > 0);
+  const dashing = Boolean(me && me.dashTimer > 0);
+  btnDash.classList.toggle('cd', onCd);
+  joyBase.classList.toggle('sprinting', dashing);
 }
 
 function makeActionButton(btn, kind) {
@@ -1128,21 +1124,25 @@ makeActionButton(btnPass, 'pass');
 makeActionButton(btnDash, 'dash');
 makeActionButton(btnTackle, 'tackle');
 
-// ==== OFFLINE PHYSICS (TRAINING, PENALTY, LOCAL 2P) ====
+// ==== OFFLINE PHYSICS ====
 let trainBotTimer = 0;
 
 function applyOfflineShot(p, b, kind, dirX, dirY, powerLevel) {
-  const speedBonus = 1 + Math.min(0.35, Math.hypot(p.vx, p.vy) / 800);
-  const imp = (kind === 'kick' ? 900 : 560) * powerLevel * speedBonus;
+  b.ownerId = null;
+  p.pickupLock = 0.25;
+  const speedBonus = 1 + Math.min(0.25, Math.hypot(p.vx, p.vy) / 900);
+  const imp = (kind === 'kick' ? 820 : 520) * powerLevel * speedBonus;
   let dx = dirX, dy = dirY;
-  if (Math.hypot(dx, dy) < 0.1) { dx = b.x - p.x; dy = b.y - p.y; }
+  if (Math.hypot(dx, dy) < 0.1) { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
   const l = Math.hypot(dx, dy) || 1;
   const nx = dx / l, ny = dy / l;
-  b.vx += nx * imp; b.vy += ny * imp;
-  const spin = (nx * dy - ny * dx) * 260 * powerLevel;
-  b.vx += -ny * spin * 0.45; b.vy += nx * spin * 0.45;
+  b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
+  b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
+  b.vx = nx * imp; b.vy = ny * imp;
+  const spin = (nx * dy - ny * dx) * 220 * powerLevel;
+  b.vx += -ny * spin * 0.4; b.vy += nx * spin * 0.4;
   b.curve = spin; b.powerGlow = Math.min(1, powerLevel * speedBonus);
-  if (imp > 650) addShake(Math.min(14, (imp - 600) / 35));
+  if (imp > 620) addShake(Math.min(12, (imp - 580) / 35));
 }
 
 function stepOfflinePhysics(dt, rawDt, now) {
@@ -1155,67 +1155,54 @@ function stepOfflinePhysics(dt, rawDt, now) {
   if (p2) moveOfflinePlayer(p2, S.p2Input, iceF, dt);
 
   if (bot) {
-    const diffMult = S.trainBot.diff === 'hard' ? 1.25 : (S.trainBot.diff === 'normal' ? 1.0 : 0.75);
-    const botMaxSpeed = 260 * diffMult;
+    const diffMult = S.trainBot.diff === 'hard' ? 1.15 : (S.trainBot.diff === 'normal' ? 0.95 : 0.72);
+    const botMaxSpeed = PLAYER_MAX * diffMult;
     const b = S.balls[0];
 
     if (S.modeType === 'penalty') {
-      // Вратарь в пенальти: чуть угадывает сторону, но двигается с задержкой и не всегда достаёт
-      const targetY = Math.max(-145, Math.min(145, b.gkTargetY ?? b.y * 0.75));
+      const targetY = Math.max(-145, Math.min(145, b.y * 0.75));
       const dy = targetY - bot.y;
-      bot.vy = Math.max(-210, Math.min(210, dy * 3.2));
+      bot.vy = Math.max(-190, Math.min(190, dy * 3.0));
       bot.y += bot.vy * dt;
       bot.x = maxX - 110;
     } else {
       trainBotTimer -= dt;
       if (trainBotTimer <= 0) {
-        trainBotTimer = 0.3;
+        trainBotTimer = 0.28;
         const dist = Math.hypot(b.x - bot.x, b.y - bot.y);
         let tx, ty;
-        if (dist < 420) {
+        if (b.ownerId === 'bot') {
+          // Бот ведёт мяч к воротам игрока (minX) и бьёт при сближении
+          tx = minX + 180;
+          ty = (S.trainBot.diff === 'hard') ? ((bot.y >= 0 ? -1 : 1) * arena.h * 0.12) : 0;
+          if (Math.abs(bot.x - minX) < 520) {
+            const aimX = minX - b.x, aimY = ty - b.y, al = Math.hypot(aimX, aimY) || 1;
+            applyOfflineShot(bot, b, 'kick', aimX / al, aimY / al, 0.85);
+            S.lastToucherId = 'bot';
+          }
+        } else if (dist < 480) {
           tx = b.x; ty = b.y;
-          // На Hard бот бьёт прицельно в угол ворот соперника (левые ворота: minX)
-          if (dist < 95 && S.trainBot.diff === 'hard' && Math.random() < 0.55) {
-            const goalCornerY = (b.y >= 0 ? -1 : 1) * (arena.h * 0.13);
-            const aimX = minX - b.x, aimY = goalCornerY - b.y, al = Math.hypot(aimX, aimY) || 1;
-            b.vx += (aimX / al) * 760; b.vy += (aimY / al) * 760; b.powerGlow = 0.9;
+          // Если мяч у игрока, бот нажимает отбор
+          if (b.ownerId === 'p1' && dist < 85 && S.trainBot.tackle && bot.tackleCd <= 0) {
+            doOfflineAction('bot', 'tackle', 0, 0, 1);
           }
         } else {
-          tx = maxX - 220; ty = b.y * 0.7 + Math.sin(now / 1000 + bot.x) * 40;
+          tx = maxX - 240; ty = b.y * 0.7 + Math.sin(now / 1000) * 40;
         }
         const dx = tx - bot.x, dy = ty - bot.y, dl = Math.hypot(dx, dy) || 1;
         bot._ix = dx / dl; bot._iy = dy / dl;
       }
-      if (S.trainBot.dash && bot.dashCd <= 0 && Math.random() < 0.015 * dt * 60) {
-        bot.dashCd = 2.5; bot.vx += (bot._ix || 0) * 480; bot.vy += (bot._iy || 0) * 480;
+      if (S.trainBot.dash && bot.dashCd <= 0 && Math.random() < 0.01 * dt * 60) {
+        doOfflineAction('bot', 'dash', 0, 0, 1);
       }
-      bot.vx += (bot._ix || 0) * 700 * diffMult * dt;
-      bot.vy += (bot._iy || 0) * 700 * diffMult * dt;
-      const bsp = Math.hypot(bot.vx, bot.vy);
-      if (bsp > botMaxSpeed) { bot.vx = bot.vx / bsp * botMaxSpeed; bot.vy = bot.vy / bsp * botMaxSpeed; }
-      const fr = Math.pow(iceF, dt * 60); bot.vx *= fr; bot.vy *= fr;
-      bot.x += bot.vx * dt; bot.y += bot.vy * dt;
-      if (bot.dashCd > 0) bot.dashCd -= dt; if (bot.tackleCd > 0) bot.tackleCd -= dt;
+      moveOfflinePlayer(bot, { x: bot._ix || 0, y: bot._iy || 0 }, iceF, dt, botMaxSpeed);
     }
   }
 
   const activePlayers = [p1, p2, bot].filter(Boolean);
-  activePlayers.forEach(p => applyAutoMagnet(p, dt));
+  const playerMap = { p1, p2, bot };
 
-  for (const b of S.balls) {
-    if (b.curve && Math.abs(b.curve) > 1) {
-      const pl = Math.hypot(-b.vy, b.vx) || 1;
-      b.vx += (-b.vy / pl) * b.curve * dt * 1.4;
-      b.vy += (b.vx / pl) * b.curve * dt * 1.4;
-      b.curve *= Math.pow(0.88, dt * 60);
-    }
-    if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.8);
-    const bf = Math.pow(0.99, dt * 60);
-    b.vx *= bf; b.vy *= bf; b.x += b.vx * dt; b.y += b.vy * dt;
-    const bsp = Math.hypot(b.vx, b.vy);
-    if (bsp > 980) { b.vx = b.vx / bsp * 980; b.vy = b.vy / bsp * 980; }
-  }
-
+  // Столкновение игроков (мяч не выбивается без кнопки Отбор)
   if (activePlayers.length >= 2) {
     for (let i = 0; i < activePlayers.length; i++) {
       for (let j = i + 1; j < activePlayers.length; j++) {
@@ -1228,42 +1215,54 @@ function stepOfflinePhysics(dt, rawDt, now) {
     }
   }
 
-  activePlayers.forEach(p => {
-    for (const b of S.balls) {
-      const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy), md = PLAYER_R + BALL_R;
-      if (d < md && d > 0.001) {
-        const nx = dx / d, ny = dy / d, ov = md - d;
-        b.x += nx * ov; b.y += ny * ov; p.x -= nx * ov * 0.3; p.y -= ny * ov * 0.3;
-        const pSp = Math.hypot(p.vx, p.vy);
-        // Автоудар на спринте
-        const kick = p.sprinting ? Math.max(680, pSp * 1.85) : Math.max(120, pSp * 1.15);
-        b.vx += nx * kick; b.vy += ny * kick;
-        if (p.sprinting) { b.powerGlow = 1; p.sprinting = false; p.fatigueTimer = 1.0; addShake(8); }
-        S.lastToucherId = p === p1 ? 'p1' : (p === p2 ? 'p2' : 'bot');
+  // Жёсткий дриблинг спереди игрока
+  for (const b of S.balls) {
+    if (b.ownerId && playerMap[b.ownerId]) {
+      const owner = playerMap[b.ownerId];
+      const ang = owner.facing || 0;
+      b.x = owner.x + Math.cos(ang) * DRIBBLE_DIST;
+      b.y = owner.y + Math.sin(ang) * DRIBBLE_DIST;
+      b.vx = owner.vx;
+      b.vy = owner.vy;
+      b.curve = 0;
+      b.powerGlow = 0;
+      S.lastToucherId = b.ownerId;
+    } else {
+      b.ownerId = null;
+      if (b.curve && Math.abs(b.curve) > 1) {
+        const pl = Math.hypot(-b.vy, b.vx) || 1;
+        b.vx += (-b.vy / pl) * b.curve * dt * 1.3;
+        b.vy += (b.vx / pl) * b.curve * dt * 1.3;
+        b.curve *= Math.pow(0.88, dt * 60);
+      }
+      if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.8);
+      const bf = Math.pow(0.988, dt * 60);
+      b.vx *= bf; b.vy *= bf; b.x += b.vx * dt; b.y += b.vy * dt;
+
+      for (const key of ['p1', 'p2', 'bot']) {
+        const p = playerMap[key];
+        if (!p || p.pickupLock > 0) continue;
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        if (d <= PLAYER_R + BALL_R + 6) {
+          b.ownerId = key;
+          S.lastToucherId = key;
+          break;
+        }
       }
     }
-  });
+  }
 
   activePlayers.forEach(p => boundRect(p, PLAYER_R, minX, maxX, minY, maxY, 0.72));
 
   const goalHalfH = (arena.h * 0.3) / 2;
   for (const b of S.balls) {
-    if (b.y < minY + BALL_R || b.y > maxY - BALL_R) {
-      const outY = b.y < minY + BALL_R ? minY + BALL_R + 10 : maxY - BALL_R - 10;
-      const nearLeft = b.x < minX + 260, nearRight = b.x > maxX - 260;
-      if ((nearLeft && S.lastToucherId !== 'p1') || (nearRight && S.lastToucherId === 'p1')) {
-        b.x = nearLeft ? minX + 40 : maxX - 40; b.y = b.y < 0 ? minY + 40 : maxY - 40; b.vx = 0; b.vy = 0; b.curve = 0;
-        toast('🚩 Угловой!');
-      } else {
-        b.x = Math.max(minX + 60, Math.min(maxX - 60, b.x)); b.y = outY; b.vx = 0; b.vy = 0; b.curve = 0;
-        toast('🙌 Вбрасывание!');
-      }
-      continue;
-    }
+    // Отскок от боковых границ поля (аут и угловой убраны)
+    if (b.y < minY + BALL_R) { b.y = minY + BALL_R; b.vy = Math.abs(b.vy) * 0.72; }
+    if (b.y > maxY - BALL_R) { b.y = maxY - BALL_R; b.vy = -Math.abs(b.vy) * 0.72; }
 
     const inGoalY = Math.abs(b.y) <= goalHalfH;
-    const escapedLeft = b.x < minX - BALL_R && inGoalY;
-    const escapedRight = b.x > maxX + BALL_R && inGoalY;
+    const escapedLeft = b.x < minX - BALL_R * 0.4 && inGoalY;
+    const escapedRight = b.x > maxX + BALL_R * 0.4 && inGoalY;
 
     if (escapedLeft || escapedRight) {
       const scoringTeam = escapedLeft ? 'blue' : 'red';
@@ -1305,26 +1304,23 @@ function stepOfflinePhysics(dt, rawDt, now) {
   }
 }
 
-function moveOfflinePlayer(p, inp, iceF, dt) {
+function moveOfflinePlayer(p, inp, iceF, dt, customMax = PLAYER_MAX) {
   if (!p) return;
   const moving = Math.hypot(inp.x, inp.y) > 0.08;
-  if (p.fatigueTimer > 0) {
-    p.fatigueTimer = Math.max(0, p.fatigueTimer - dt); p.sprinting = false; p.joyHoldTime = 0;
-  } else if (moving) {
-    p.joyHoldTime = (p.joyHoldTime || 0) + dt;
-    if (p.joyHoldTime >= 0.5) p.sprinting = true;
-  } else {
-    if (p.sprinting) p.fatigueTimer = 1.0;
-    p.sprinting = false; p.joyHoldTime = 0;
+  if (moving) p.facing = Math.atan2(inp.y, inp.x);
+
+  p.vx += inp.x * 680 * dt; p.vy += inp.y * 680 * dt;
+  if (!moving) {
+    const fr = Math.pow(iceF, dt * 60); p.vx *= fr; p.vy *= fr;
+  } else if ((p.dashTimer || 0) <= 0) {
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > customMax) { p.vx = p.vx / sp * customMax; p.vy = p.vy / sp * customMax; }
   }
-  const accel = p.sprinting ? 1150 : 750;
-  const maxSp = p.fatigueTimer > 0 ? 140 : (p.sprinting ? 430 : 260);
-  p.vx += inp.x * accel * dt; p.vy += inp.y * accel * dt;
-  const sp = Math.hypot(p.vx, p.vy);
-  if (sp > maxSp) { p.vx = p.vx / sp * maxSp; p.vy = p.vy / sp * maxSp; }
-  if (!moving) { const fr = Math.pow(iceF, dt * 60); p.vx *= fr; p.vy *= fr; }
   p.x += p.vx * dt; p.y += p.vy * dt;
-  if (p.dashCd > 0) p.dashCd -= dt; if (p.tackleCd > 0) p.tackleCd -= dt;
+  if (p.dashCd > 0) p.dashCd -= dt;
+  if (p.dashTimer > 0) p.dashTimer -= dt;
+  if (p.tackleCd > 0) p.tackleCd -= dt;
+  if (p.pickupLock > 0) p.pickupLock -= dt;
 }
 
 function boundRect(o, r, minX, maxX, minY, maxY, bounce) {
@@ -1338,39 +1334,45 @@ function doOfflineAction(playerKey, kind, dirX, dirY, power) {
   const me = S.players[playerKey]; if (!me) return;
   const inp = playerKey === 'p2' ? S.p2Input : S.myInput;
   if (kind === 'dash') {
-    if (me.dashCd > 0 || me.fatigueTimer > 0) return;
-    me.dashCd = 2.5;
+    if (me.dashCd > 0) return;
+    me.dashCd = 2.0;
+    me.dashTimer = 0.28;
     const len = Math.hypot(inp.x, inp.y);
-    if (len > 0.1) { me.vx += (inp.x / len) * 520; me.vy += (inp.y / len) * 520; }
+    const nx = len > 0.1 ? inp.x / len : Math.cos(me.facing || 0);
+    const ny = len > 0.1 ? inp.y / len : Math.sin(me.facing || 0);
+    me.vx = nx * DASH_IMPULSE;
+    me.vy = ny * DASH_IMPULSE;
     return;
   }
   if (kind === 'tackle') {
-    if (me.tackleCd > 0) return; me.tackleCd = 3;
+    if (me.tackleCd > 0) return; me.tackleCd = 2.2;
+    const fx = Math.cos(me.facing || 0), fy = Math.sin(me.facing || 0);
+    me.vx += fx * 260; me.vy += fy * 260;
+
     for (const b of S.balls) {
-      const dx = b.x - me.x, dy = b.y - me.y, d = Math.hypot(dx, dy);
-      if (d < PLAYER_R + BALL_R + 60 && d > 1) { b.vx += (dx / d) * 420; b.vy += (dy / d) * 420; }
+      const d = Math.hypot(b.x - me.x, b.y - me.y);
+      if (d < PLAYER_R + BALL_R + 55) {
+        if (b.ownerId && b.ownerId !== playerKey && S.players[b.ownerId]) {
+          S.players[b.ownerId].pickupLock = 0.6;
+          S.players[b.ownerId].vx *= 0.35;
+          S.players[b.ownerId].vy *= 0.35;
+        }
+        b.ownerId = playerKey;
+        S.lastToucherId = playerKey;
+      }
     }
     return;
   }
   let bestB = null, bestD = 9999;
   for (const b of S.balls) {
-    const dx = b.x - me.x, dy = b.y - me.y, d = Math.hypot(dx, dy);
+    if (b.ownerId === playerKey) { bestB = b; break; }
+    const d = Math.hypot(b.x - me.x, b.y - me.y);
     const range = (kind === 'kick' ? 75 : 85) + PLAYER_R + BALL_R;
-    if (d < range && d < bestD) { bestD = d; bestB = b; }
+    if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
   }
   if (!bestB) return;
   applyOfflineShot(me, bestB, kind, dirX, dirY, power);
   if (kind === 'kick') playSfx('kick');
-}
-
-function applyAutoMagnet(p, dt) {
-  for (const b of S.balls) {
-    const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy);
-    if (d < 320 && d > 1) {
-      const f = 680 * (1 - d / 320);
-      b.vx += (dx / d) * f * dt; b.vy += (dy / d) * f * dt;
-    }
-  }
 }
 
 // ==== NETWORK INPUT (30 Hz) ====
@@ -1428,7 +1430,6 @@ function renderWorld(dt) {
     for (const [x, y, w, h] of [[-300, -200, 100, 60], [300, 200, 100, 60], [0, 0, 80, 80]]) ctx.fillRect(x - w / 2, y - h / 2, w, h);
   }
 
-  // Частицы спринта
   for (let i = S.sprintParticles.length - 1; i >= 0; i--) {
     const pt = S.sprintParticles[i];
     pt.life -= dt * 2.5;
@@ -1440,15 +1441,10 @@ function renderWorld(dt) {
   ctx.globalAlpha = 1;
 
   const myPlayer = S.players[S.myId];
-  if (myPlayer && myPlayer.team !== 'spec') {
-    ctx.strokeStyle = 'rgba(170,102,255,.16)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(myPlayer.x, myPlayer.y, 320, 0, Math.PI * 2); ctx.stroke();
-  }
 
-  // Трейл мяча (ярче при сильном ударе)
   if (S.balls[0]) {
     const b0 = S.balls[0], sp = Math.hypot(b0.vx || 0, b0.vy || 0);
-    if (sp > 280 || (b0.powerGlow || 0) > 0.2) {
+    if (!b0.ownerId && (sp > 280 || (b0.powerGlow || 0) > 0.2)) {
       S.ballTrail.push({ x: b0.x, y: b0.y, hot: (b0.powerGlow || 0) > 0.5 || sp > 620 });
       if (S.ballTrail.length > 14) S.ballTrail.shift();
     } else if (S.ballTrail.length > 0) S.ballTrail.shift();
@@ -1460,20 +1456,18 @@ function renderWorld(dt) {
     });
   }
 
-  // Мячи, подсветка в зоне удара и пунктирная стрелка прицела
   for (const b of S.balls) {
     const sp = Math.hypot(b.vx || 0, b.vy || 0);
     b.rot = (b.rot || 0) + (sp * dt) / BALL_R;
 
     if (S.chargingKind === 'kick' && myPlayer && myPlayer.team !== 'spec') {
       const dist = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
-      if (dist < 75 + PLAYER_R + BALL_R) {
+      if (b.ownerId === S.myId || dist < 75 + PLAYER_R + BALL_R) {
         ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 4;
         ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R + 8, 0, Math.PI * 2); ctx.stroke();
 
-        // Пунктирная стрелка направления удара от мяча
-        const ax = Math.hypot(S.aimDir.x, S.aimDir.y) > 0.1 ? S.aimDir.x : ((b.x - myPlayer.x) / (dist || 1));
-        const ay = Math.hypot(S.aimDir.x, S.aimDir.y) > 0.1 ? S.aimDir.y : ((b.y - myPlayer.y) / (dist || 1));
+        const ax = Math.hypot(S.aimDir.x, S.aimDir.y) > 0.1 ? S.aimDir.x : Math.cos(myPlayer.facing || 0);
+        const ay = Math.hypot(S.aimDir.x, S.aimDir.y) > 0.1 ? S.aimDir.y : Math.sin(myPlayer.facing || 0);
         const arrowLen = 70 + S.power * 160;
         ctx.save();
         ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 4; ctx.setLineDash([10, 8]);
@@ -1489,7 +1483,7 @@ function renderWorld(dt) {
     const p = S.players[id];
     if (p.team === 'spec') continue;
     if (p._tx !== undefined && id !== S.myId) { p.x = lerp(p.x, p._tx, 0.4); p.y = lerp(p.y, p._ty, 0.4); }
-    if (p.sprinting && Math.random() < 0.65) {
+    if ((p.dashTimer || 0) > 0 && Math.random() < 0.75) {
       S.sprintParticles.push({ x: p.x + (Math.random() - 0.5) * 18, y: p.y + (Math.random() - 0.5) * 18, r: 7, life: 1, color: p.color || '#00ffcc' });
     }
     drawPlayer(p, id === S.myId);
@@ -1547,10 +1541,8 @@ function drawPlayer(p, isMe) {
   const x = p.x || 0, y = p.y || 0, r = PLAYER_R;
   const color = p.color || '#fff', teamColor = p.team === 'red' ? '#ff3366' : '#33aaff';
 
-  // Индикатор "носа" при спринте
-  const sp = Math.hypot(p.vx || 0, p.vy || 0);
-  if (p.sprinting && sp > 20) {
-    const nx = p.vx / sp, ny = p.vy / sp;
+  if ((p.dashTimer || 0) > 0) {
+    const nx = Math.cos(p.facing || 0), ny = Math.sin(p.facing || 0);
     ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(x + nx * (r + 16), y + ny * (r + 16));
@@ -1562,10 +1554,8 @@ function drawPlayer(p, isMe) {
 
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.arc(x + 3, y + 3, r, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = teamColor; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = p.fatigueTimer > 0 ? '#777' : color;
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
 
-  // Кольцо зарядки удара вокруг игрока
   if (isMe && S.chargingKind && S.power > 0) {
     ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 5;
     ctx.beginPath();
@@ -1579,7 +1569,7 @@ function drawPlayer(p, isMe) {
 
   if (p.dashCd > 0) {
     ctx.strokeStyle = 'rgba(255,204,0,.9)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(x, y, r + 10, -Math.PI / 2, -Math.PI / 2 + (1 - p.dashCd / 2.5) * Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, r + 10, -Math.PI / 2, -Math.PI / 2 + (1 - p.dashCd / 2.0) * Math.PI * 2); ctx.stroke();
   }
 
   ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = isMe ? '#ffcc00' : '#fff';
@@ -1600,16 +1590,15 @@ function gameLoop(now) {
     const me = S.players[S.myId];
     if (me && me.team !== 'spec') {
       const moving = Math.hypot(S.myInput.x, S.myInput.y) > 0.08;
-      if (me.fatigueTimer > 0) { me.fatigueTimer = Math.max(0, me.fatigueTimer - rawDt); me.sprinting = false; me.joyHoldTime = 0; }
-      else if (moving) { me.joyHoldTime = (me.joyHoldTime || 0) + rawDt; if (me.joyHoldTime >= 0.5) me.sprinting = true; }
-      else { if (me.sprinting) me.fatigueTimer = 1.0; me.sprinting = false; me.joyHoldTime = 0; }
+      if (moving) me.facing = Math.atan2(S.myInput.y, S.myInput.x);
 
-      const accel = me.sprinting ? 1150 : 750;
-      const maxSp = me.fatigueTimer > 0 ? 140 : (me.sprinting ? 430 : 260);
-      me.vx += S.myInput.x * accel * rawDt; me.vy += S.myInput.y * accel * rawDt;
-      const sp = Math.hypot(me.vx, me.vy);
-      if (sp > maxSp) { me.vx = me.vx / sp * maxSp; me.vy = me.vy / sp * maxSp; }
-      if (!moving) { const f = Math.pow(0.982, rawDt * 60); me.vx *= f; me.vy *= f; }
+      me.vx += S.myInput.x * 680 * rawDt; me.vy += S.myInput.y * 680 * rawDt;
+      if (!moving) {
+        const f = Math.pow(0.982, rawDt * 60); me.vx *= f; me.vy *= f;
+      } else if ((me.dashTimer || 0) <= 0) {
+        const sp = Math.hypot(me.vx, me.vy);
+        if (sp > PLAYER_MAX) { me.vx = me.vx / sp * PLAYER_MAX; me.vy = me.vy / sp * PLAYER_MAX; }
+      }
       me.x += me.vx * rawDt; me.y += me.vy * rawDt;
       S.cam.x = lerp(S.cam.x, me.x, 6 * rawDt); S.cam.y = lerp(S.cam.y, me.y, 6 * rawDt);
     } else if (S.balls[0]) {
@@ -1626,7 +1615,6 @@ function gameLoop(now) {
   S.rafId = requestAnimationFrame(gameLoop);
 }
 
-// ==== ACHIEVEMENTS & TOAST ====
 function checkAchievements() {
   const a = S.achievements;
   if (S.totalGoals >= 1 && !a.firstGoal) { a.firstGoal = true; toast('🏆 Первый гол!'); }
@@ -1645,4 +1633,4 @@ function toast(msg) {
 })();
 </script>
 </body>
-  </html>
+</html>
