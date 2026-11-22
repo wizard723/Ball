@@ -98,7 +98,6 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
 #btnDash{width:54px;height:54px;right:24px;bottom:104px;background:linear-gradient(135deg,rgba(255,212,59,.92),rgba(255,159,28,.88));color:#121622;font-size:16px}
 #btnTackle{width:58px;height:58px;right:100px;bottom:100px;background:linear-gradient(135deg,rgba(255,136,0,.85),rgba(220,76,20,.82));font-size:16px}
 #btnLob{width:52px;height:52px;right:168px;bottom:58px;background:linear-gradient(135deg,rgba(40,199,111,.85),rgba(24,166,88,.82));font-size:15px}
-#btnFinesse{width:52px;height:52px;right:168px;bottom:118px;background:linear-gradient(135deg,rgba(170,102,255,.88),rgba(121,80,242,.85));font-size:15px}
 
 #powerBar{position:absolute;bottom:192px;right:24px;width:16px;height:104px;background:rgba(0,0,0,.62);border:2px solid rgba(255,255,255,.35);border-radius:9px;display:none;overflow:hidden;z-index:7}
 #powerBar.show{display:block}
@@ -201,7 +200,6 @@ canvas{display:block;position:absolute;inset:0;width:100%;height:100%;touch-acti
   <button class="act-btn" id="btnKick"><span class="aim-arrow" id="kickAimArrow">➤</span>⚽<span class="lbl2">Удар</span></button>
   <button class="act-btn" id="btnPass">➤<span class="lbl2">Пас</span></button>
   <button class="act-btn" id="btnLob">⤴<span class="lbl2">Навес</span></button>
-  <button class="act-btn" id="btnFinesse">🌀<span class="lbl2">Кручёный</span></button>
   <button class="act-btn" id="btnDash">⚡<span class="lbl2">Рывок</span></button>
   <button class="act-btn" id="btnTackle">🎯<span class="lbl2">Отбор</span></button>
 </div>
@@ -528,7 +526,7 @@ const $ = id => document.getElementById(id);
 const menu = $('menu'), lobby = $('lobby'), hud = $('hud'), trainPanel = $('trainPanel');
 const joyBase = $('joyBase'), joyStick = $('joyStick');
 const joyZone = $('joyZone'), actionZone = $('actionZone');
-const btnKick = $('btnKick'), btnPass = $('btnPass'), btnLob = $('btnLob'), btnFinesse = $('btnFinesse'), btnDash = $('btnDash'), btnTackle = $('btnTackle');
+const btnKick = $('btnKick'), btnPass = $('btnPass'), btnLob = $('btnLob'), btnDash = $('btnDash'), btnTackle = $('btnTackle');
 const powerBar = $('powerBar'), powerFill = $('powerFill'), kickAimArrow = $('kickAimArrow');
 
 function applyButtonLayout() {
@@ -537,7 +535,6 @@ function applyButtonLayout() {
       { el: btnKick, w: 74, r: 18, b: 18, fs: 21 },
       { el: btnPass, w: 58, r: 104, b: 24, fs: 16 },
       { el: btnLob, w: 52, r: 168, b: 56, fs: 15 },
-      { el: btnFinesse, w: 52, r: 168, b: 116, fs: 15 },
       { el: btnDash, w: 54, r: 24, b: 104, fs: 16 },
       { el: btnTackle, w: 58, r: 100, b: 100, fs: 16 }
     ],
@@ -545,7 +542,6 @@ function applyButtonLayout() {
       { el: btnKick, w: 70, r: 16, b: 16, fs: 20 },
       { el: btnPass, w: 54, r: 94, b: 18, fs: 15 },
       { el: btnLob, w: 48, r: 152, b: 46, fs: 14 },
-      { el: btnFinesse, w: 48, r: 152, b: 100, fs: 14 },
       { el: btnDash, w: 50, r: 22, b: 92, fs: 15 },
       { el: btnTackle, w: 54, r: 88, b: 84, fs: 15 }
     ],
@@ -553,7 +549,6 @@ function applyButtonLayout() {
       { el: btnKick, w: 76, r: 20, b: 20, fs: 22 },
       { el: btnPass, w: 60, r: 114, b: 22, fs: 16 },
       { el: btnLob, w: 54, r: 184, b: 58, fs: 15 },
-      { el: btnFinesse, w: 54, r: 184, b: 120, fs: 15 },
       { el: btnDash, w: 56, r: 24, b: 114, fs: 16 },
       { el: btnTackle, w: 60, r: 112, b: 112, fs: 16 }
     ]
@@ -1300,7 +1295,6 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') doOfflineAction('p1', 'kick', 0, 0, 1);
   if (e.code === 'KeyF') doOfflineAction('p1', 'pass', 0, 0, 0.75);
   if (e.code === 'KeyQ') doOfflineAction('p1', 'lob', 0, 0, 0.85);
-  if (e.code === 'KeyC') doOfflineAction('p1', 'finesse', 0, 0, 0.9);
   if (e.code === 'ShiftLeft') doOfflineAction('p1', 'dash', 0, 0, 1);
   if (e.code === 'KeyE') doOfflineAction('p1', 'tackle', 0, 0, 1);
   if (S.modeType === 'local2p') {
@@ -1481,7 +1475,7 @@ function makeActionButton(btn, kind) {
     if (S.modeType !== 'online') doOfflineAction('p1', kind, v.x, v.y, power, curveSign);
     else socket.emit('action', { type: kind, dirX: v.x, dirY: v.y, power, curveSign });
 
-    if (kind === 'kick' || kind === 'lob' || kind === 'finesse') { S.totalShots++; playSfx('kick'); }
+    if (kind === 'kick' || kind === 'lob') { S.totalShots++; playSfx('kick'); }
     else if (kind === 'pass') { S.totalPasses++; playSfx('pass'); }
     checkAchievements(); saveAll();
     S.power = 0; S.aimDir = { x: 0, y: 0 };
@@ -1497,7 +1491,6 @@ function makeActionButton(btn, kind) {
 makeActionButton(btnKick, 'kick');
 makeActionButton(btnPass, 'pass');
 makeActionButton(btnLob, 'lob');
-makeActionButton(btnFinesse, 'finesse');
 makeActionButton(btnDash, 'dash');
 makeActionButton(btnTackle, 'tackle');
 
@@ -1513,20 +1506,6 @@ function recordOfflineTouch(playerKey) {
     else S.prevToucherId = null;
   }
   S.lastToucherId = playerKey;
-}
-
-
-function segmentCrossesGoalLine(x1, y1, x2, y2, lineX, goalHalfH) {
-  const dx = x2 - x1;
-  if (Math.abs(dx) < 1e-6) {
-    return Math.abs(x2 - lineX) <= BALL_R * 0.4 && Math.abs(y2) <= goalHalfH + BALL_R * 0.25;
-  }
-  const t = (lineX - x1) / dx;
-  if (t >= 0 && t <= 1) {
-    const yAtLine = y1 + (y2 - y1) * t;
-    if (Math.abs(yAtLine) <= goalHalfH + BALL_R * 0.25) return true;
-  }
-  return false;
 }
 
 function resolveOfflineCircleRect(o, r, rx, ry, rw, rh, bounce) {
@@ -1553,25 +1532,13 @@ function applyOfflineShot(p, playerKey, b, kind, dirX, dirY, powerLevel, curveSi
   p.pickupLock = 0.22;
   const speedBonus = 1 + Math.min(0.28, Math.hypot(p.vx, p.vy) / 800);
   const isOvercharged = kind === 'kick' && powerLevel >= 0.88;
-  const maxImp = kind === 'lob' ? 820 : (kind === 'finesse' ? 860 : (kind === 'kick' ? 980 : 660));
+  const maxImp = kind === 'lob' ? 820 : (kind === 'kick' ? 980 : 660);
   const imp = maxImp * powerLevel * speedBonus * (isOvercharged ? 1.08 : 1);
 
   let dx = dirX, dy = dirY;
   if (Math.hypot(dx, dy) < 0.1) { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
-  let l = Math.hypot(dx, dy) || 1;
-  let nx = dx / l, ny = dy / l;
-
-  const arena = ARENAS[S.settings.arena] || ARENAS.classic;
-  const targetGoalX = p.team === 'red' ? arena.w / 2 : -arena.w / 2;
-  const distFactor = Math.min(1, Math.abs(targetGoalX - b.x) / (arena.w * 0.85));
-  const spreadBase = kind === 'kick' ? (0.012 + distFactor * 0.048) * (1 - powerLevel * 0.35) :
-                     kind === 'finesse' ? (0.008 + distFactor * 0.025) :
-                     kind === 'lob' ? (0.02 + distFactor * 0.04) : 0.015;
-  const jAng = (Math.random() - 0.5) * 2 * spreadBase;
-  const jx = nx * Math.cos(jAng) - ny * Math.sin(jAng);
-  const jy = nx * Math.sin(jAng) + ny * Math.cos(jAng);
-  nx = jx; ny = jy;
-
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = dx / l, ny = dy / l;
   b.prevX = b.x; b.prevY = b.y;
   b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
   b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
@@ -1580,15 +1547,13 @@ function applyOfflineShot(p, playerKey, b, kind, dirX, dirY, powerLevel, curveSi
 
   const inp = playerKey === 'p2' ? S.p2Input : S.myInput;
   const cross = curveSign !== 0 ? curveSign : (nx * (inp.y || 0) - ny * (inp.x || 0));
-  const spin = kind === 'finesse'
-    ? (cross !== 0 ? Math.sign(cross) : (p.team === 'red' ? -1 : 1)) * 340 * powerLevel
-    : (kind === 'kick' ? cross * 260 * powerLevel : (kind === 'lob' ? cross * 140 * powerLevel : cross * 90 * powerLevel));
+  const spin = kind === 'kick' ? cross * 260 * powerLevel : (kind === 'lob' ? cross * 140 * powerLevel : cross * 90 * powerLevel);
   b.curve = spin;
   b.powerGlow = Math.min(1, powerLevel * speedBonus * (isOvercharged ? 1.2 : 1));
   b.lastTeam = p.team;
 
   if (p.team === 'red' || p.team === 'blue') {
-    if (kind === 'kick' || kind === 'lob' || kind === 'finesse') { S.matchStats.shots[p.team]++; if (p.stats) p.stats.shots++; }
+    if (kind === 'kick' || kind === 'lob') { S.matchStats.shots[p.team]++; if (p.stats) p.stats.shots++; }
     if (kind === 'pass' || kind === 'lob') { S.matchStats.passes[p.team]++; if (p.stats) p.stats.passes++; }
   }
   recordOfflineTouch(playerKey);
@@ -1735,15 +1700,10 @@ function stepOfflinePhysics(dt, rawDt) {
     if (b.y < minY + BALL_R) { b.y = minY + BALL_R; b.vy = Math.abs(b.vy) * 0.78; }
     if (b.y > maxY - BALL_R) { b.y = maxY - BALL_R; b.vy = -Math.abs(b.vy) * 0.78; }
 
-    const inGoalZ = (b.z || 0) <= 72;
-    const crossedLeft = inGoalZ && (
-      segmentCrossesGoalLine(b.prevX, b.prevY, b.x, b.y, minX, goalHalfH) ||
-      (b.x < minX - BALL_R * 0.35 && Math.abs(b.y) <= goalHalfH + BALL_R * 0.25)
-    );
-    const crossedRight = inGoalZ && (
-      segmentCrossesGoalLine(b.prevX, b.prevY, b.x, b.y, maxX, goalHalfH) ||
-      (b.x > maxX + BALL_R * 0.35 && Math.abs(b.y) <= goalHalfH + BALL_R * 0.25)
-    );
+    const inGoalY = Math.abs(b.y) <= goalHalfH + BALL_R * 0.25;
+    const inGoalZ = (b.z || 0) <= 68;
+    const crossedLeft = ((b.prevX >= minX && b.x <= minX + BALL_R * 0.35) || b.x < minX - BALL_R * 0.4) && inGoalY && inGoalZ;
+    const crossedRight = ((b.prevX <= maxX && b.x >= maxX - BALL_R * 0.35) || b.x > maxX + BALL_R * 0.4) && inGoalY && inGoalZ;
 
     if (crossedLeft || crossedRight) {
       b.scored = true;
@@ -1893,12 +1853,12 @@ function doOfflineAction(playerKey, kind, dirX, dirY, power, curveSign = 0) {
   for (const b of S.balls) {
     if (b.ownerId === playerKey) { bestB = b; break; }
     const d = Math.hypot(b.x - me.x, b.y - me.y);
-    const range = (kind === 'kick' || kind === 'finesse' ? 92 : 106) + PLAYER_R + BALL_R;
+    const range = (kind === 'kick' ? 92 : 106) + PLAYER_R + BALL_R;
     if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
   }
   if (!bestB) return;
   applyOfflineShot(me, playerKey, bestB, kind, dirX, dirY, power, curveSign);
-  if (kind === 'kick' || kind === 'lob' || kind === 'finesse') playSfx('kick');
+  if (kind === 'kick' || kind === 'lob') playSfx('kick');
   else if (kind === 'pass') playSfx('pass');
 }
 
@@ -1921,12 +1881,10 @@ function getScale() {
 
 function drawAimTrajectory(b, p, kind, aim, power) {
   const speedBonus = 1 + Math.min(0.28, Math.hypot(p.vx || 0, p.vy || 0) / 800);
-  const maxImp = kind === 'lob' ? 820 : (kind === 'finesse' ? 860 : (kind === 'kick' ? 980 : 660));
+  const maxImp = kind === 'lob' ? 820 : (kind === 'kick' ? 980 : 660);
   const imp = maxImp * Math.max(0.25, power) * speedBonus;
   const cross = Math.sign(aim.x * S.myInput.y - aim.y * S.myInput.x);
-  const spin = kind === 'finesse'
-    ? (cross !== 0 ? cross : (p.team === 'red' ? -1 : 1)) * 340 * power
-    : (kind === 'kick' ? cross * 260 * power : (kind === 'lob' ? cross * 140 * power : cross * 90 * power));
+  const spin = kind === 'kick' ? cross * 260 * power : (kind === 'lob' ? cross * 140 * power : cross * 90 * power);
 
   let simX = b.x + aim.x * (PLAYER_R + BALL_R + 6);
   let simY = b.y + aim.y * (PLAYER_R + BALL_R + 6);
@@ -1937,7 +1895,7 @@ function drawAimTrajectory(b, p, kind, aim, power) {
   const steps = kind === 'kick' ? 18 : 14;
 
   ctx.save();
-  ctx.strokeStyle = kind === 'kick' ? '#ffd43b' : (kind === 'finesse' ? '#b197fc' : (kind === 'lob' ? '#28c76f' : '#4dabf7'));
+  ctx.strokeStyle = kind === 'kick' ? '#ffd43b' : (kind === 'lob' ? '#28c76f' : '#4dabf7');
   ctx.lineWidth = 4;
   ctx.setLineDash([9, 7]);
   ctx.beginPath();
@@ -1959,7 +1917,7 @@ function drawAimTrajectory(b, p, kind, aim, power) {
   ctx.setLineDash([]);
 
   const headAng = Math.atan2(simVy, simVx);
-  ctx.fillStyle = kind === 'kick' ? '#ffd43b' : (kind === 'finesse' ? '#b197fc' : (kind === 'lob' ? '#28c76f' : '#4dabf7'));
+  ctx.fillStyle = kind === 'kick' ? '#ffd43b' : (kind === 'lob' ? '#28c76f' : '#4dabf7');
   ctx.beginPath();
   ctx.moveTo(simX, simY);
   ctx.lineTo(simX - Math.cos(headAng - 0.5) * 16, simY - Math.sin(headAng - 0.5) * 16);
@@ -2048,7 +2006,7 @@ function renderWorld(dt) {
 
     if (S.chargingKind && myPlayer && myPlayer.team !== 'spec') {
       const dist = Math.hypot(b.x - myPlayer.x, b.y - myPlayer.y);
-      const range = (S.chargingKind === 'kick' || S.chargingKind === 'finesse' ? 92 : 106) + PLAYER_R + BALL_R;
+      const range = (S.chargingKind === 'kick' ? 92 : 106) + PLAYER_R + BALL_R;
       if (b.ownerId === S.myId || dist <= range) {
         const aim = resolveAimVector(myPlayer);
         drawAimTrajectory(b, myPlayer, S.chargingKind, aim, S.power);
@@ -2127,11 +2085,7 @@ function drawPlayer(p, isMe) {
   const color = p.color || '#fff', teamColor = p.team === 'red' ? '#ff3366' : '#33aaff';
   const sp = Math.hypot(p.vx || 0, p.vy || 0);
   const bob = sp > 15 ? Math.sin(p.walkPhase || 0) * 2.2 : 0;
-  const celType = p.celebration || 'jump';
-  const celActive = (p.celebrateTimer || 0) > 0;
-  const celJump = celActive && (celType === 'jump' || celType === 'flex') ? Math.abs(Math.sin(p.celebrateTimer * 9)) * 14 : 0;
-  const celSlideX = celActive && celType === 'slide' ? Math.cos(p.facing || 0) * Math.sin(p.celebrateTimer * 6) * 10 : 0;
-  const drawX = x + celSlideX;
+  const celJump = (p.celebrateTimer || 0) > 0 ? Math.abs(Math.sin(p.celebrateTimer * 9)) * 12 : 0;
   const drawY = y + bob - celJump;
 
   if ((p.dashTimer || 0) > 0) {
@@ -2160,16 +2114,6 @@ function drawPlayer(p, isMe) {
   ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 3;
   ctx.strokeText(String(p.number ?? ''), x, drawY); ctx.fillText(String(p.number ?? ''), x, drawY);
 
-  if (celActive) {
-    ctx.save();
-    ctx.strokeStyle = celType === 'spin' ? '#b197fc' : (celType === 'flex' ? '#ff6b6b' : '#ffd43b');
-    ctx.lineWidth = 4;
-    const spinAng = (p.celebrateTimer || 0) * 10;
-    ctx.beginPath();
-    ctx.arc(drawX, drawY, r + 14, spinAng, spinAng + Math.PI * 1.3);
-    ctx.stroke();
-    ctx.restore();
-  }
   if (p.dashCd > 0) {
     ctx.strokeStyle = 'rgba(255,212,59,.9)'; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.arc(x, drawY, r + 10, -Math.PI / 2, -Math.PI / 2 + (1 - p.dashCd / 1.7) * Math.PI * 2); ctx.stroke();
