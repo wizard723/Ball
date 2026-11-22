@@ -1,1600 +1,2358 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#0b1120" />
-  <title>Ball Brawl Pro — Online & LAN Football</title>
-  <script src="/socket.io/socket.io.js"></script>
-  <style>
-    :root {
-      --bg: #0b1120;
-      --panel: rgba(15, 23, 42, 0.92);
-      --border: rgba(148, 163, 184, 0.22);
-      --accent: #38bdf8;
-      --accent-2: #22c55e;
-      --danger: #ef4444;
-      --gold: #facc15;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-    }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
-    html, body {
-      margin: 0; padding: 0; width: 100%; height: 100%;
-      overflow: hidden; background: var(--bg); color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    #gameCanvas {
-      display: block; width: 100vw; height: 100vh;
-      touch-action: none; background: #184221;
-    }
-    .overlay {
-      position: fixed; inset: 0; z-index: 20;
-      display: flex; align-items: center; justify-content: center;
-      background: radial-gradient(circle at top, rgba(30,41,59,0.92), rgba(11,17,32,0.97));
-      padding: 12px; overflow-y: auto;
-    }
-    .hidden { display: none !important; }
-    .card {
-      width: 100%; max-width: 960px; max-height: 94vh;
-      background: var(--panel); border: 1px solid var(--border);
-      border-radius: 18px; padding: 16px 18px; overflow-y: auto;
-      box-shadow: 0 24px 60px rgba(0,0,0,0.6);
-    }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .between { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-    h1, h2, h3 { margin: 0 0 8px 0; }
-    .badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
-      background: rgba(56, 189, 248, 0.16); border: 1px solid rgba(56, 189, 248, 0.35);
-    }
-    .badge.gold { background: rgba(250, 204, 21, 0.16); border-color: rgba(250, 204, 21, 0.4); color: var(--gold); }
-    .badge.green { background: rgba(34, 197, 94, 0.16); border-color: rgba(34, 197, 94, 0.4); color: #4ade80; }
-    .btn {
-      border: 1px solid var(--border); background: rgba(30, 41, 59, 0.95);
-      color: var(--text); padding: 10px 14px; border-radius: 12px;
-      font-weight: 700; font-size: 13px; cursor: pointer; transition: transform .08s, background .15s;
-    }
-    .btn:active { transform: scale(0.96); }
-    .btn.primary { background: linear-gradient(135deg, #0284c7, #2563eb); border-color: #38bdf8; }
-    .btn.success { background: linear-gradient(135deg, #16a34a, #15803d); border-color: #4ade80; }
-    .btn.danger { background: linear-gradient(135deg, #dc2626, #991b1b); border-color: #f87171; }
-    .btn.gold { background: linear-gradient(135deg, #ca8a04, #a16207); border-color: #facc15; }
-    .btn.sm { padding: 6px 10px; font-size: 12px; border-radius: 9px; }
-    input, select {
-      width: 100%; padding: 9px 11px; border-radius: 10px;
-      border: 1px solid var(--border); background: rgba(15, 23, 42, 0.9);
-      color: var(--text); font-size: 13px; outline: none;
-    }
-    label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
-    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
-    .tab {
-      padding: 8px 12px; border-radius: 10px; font-size: 12px; font-weight: 700;
-      background: rgba(30,41,59,0.65); border: 1px solid transparent; cursor: pointer; white-space: nowrap;
-    }
-    .tab.active { background: rgba(56, 189, 248, 0.2); border-color: var(--accent); color: var(--accent); }
-    .box {
-      background: rgba(30, 41, 59, 0.55); border: 1px solid var(--border);
-      border-radius: 14px; padding: 12px;
-    }
-    .list-item {
-      display: flex; justify-content: space-between; align-items: center; gap: 8px;
-      padding: 8px 10px; border-radius: 10px; background: rgba(15,23,42,0.75);
-      border: 1px solid rgba(148,163,184,0.14); margin-bottom: 6px; font-size: 13px;
-    }
-    /* HUD */
-    #hud {
-      position: fixed; inset: 0; pointer-events: none; z-index: 10;
-    }
-    .scoreboard {
-      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-      display: flex; align-items: center; gap: 12px;
-      background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border);
-      padding: 6px 16px; border-radius: 999px; font-weight: 800; font-size: 15px;
-      backdrop-filter: blur(6px);
-    }
-    .team-pill { padding: 3px 10px; border-radius: 999px; }
-    .team-red { background: rgba(239,68,68,0.28); color: #fca5a5; }
-    .team-blue { background: rgba(59,130,246,0.28); color: #93c5fd; }
-    .hud-top-right {
-      position: absolute; top: 10px; right: 12px; display: flex; gap: 6px; pointer-events: auto;
-    }
-    .hud-top-left {
-      position: absolute; top: 10px; left: 12px; display: flex; flex-direction: column; gap: 4px;
-      font-size: 11px; color: var(--muted);
-    }
-    .stamina-wrap {
-      width: 130px; height: 8px; background: rgba(15,23,42,0.85);
-      border: 1px solid var(--border); border-radius: 999px; overflow: hidden;
-    }
-    #staminaFill { width: 100%; height: 100%; background: linear-gradient(90deg, #22c55e, #38bdf8); transition: width .08s; }
-    /* Touch Controls */
-    #touchControls {
-      position: fixed; inset: 0; pointer-events: none; z-index: 12;
-    }
-    .joy-zone {
-      position: absolute; left: 24px; bottom: 24px; width: 132px; height: 132px;
-      border-radius: 50%; background: rgba(148,163,184,0.14); border: 2px solid rgba(148,163,184,0.3);
-      pointer-events: auto; touch-action: none;
-    }
-    .joy-knob {
-      position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
-      margin-left: -26px; margin-top: -26px; border-radius: 50%;
-      background: rgba(56,189,248,0.65); border: 2px solid #fff;
-      pointer-events: none;
-    }
-    .act-btn {
-      position: absolute; width: 64px; height: 64px; border-radius: 50%;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 800; color: #fff;
-      background: rgba(15, 23, 42, 0.78); border: 2px solid rgba(255,255,255,0.32);
-      pointer-events: auto; touch-action: none; box-shadow: 0 6px 18px rgba(0,0,0,0.45);
-    }
-    .act-btn.charging { border-color: var(--gold); box-shadow: 0 0 18px rgba(250,204,21,0.7); transform: scale(1.08); }
-    .act-btn.cd { opacity: 0.45; }
-    .toast {
-      position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
-      z-index: 60; background: rgba(15,23,42,0.95); border: 1px solid var(--accent);
-      padding: 8px 16px; border-radius: 12px; font-size: 13px; font-weight: 700;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    }
-    .banner {
-      position: fixed; top: 28%; left: 50%; transform: translate(-50%, -50%);
-      z-index: 18; font-size: 36px; font-weight: 900; text-align: center;
-      text-shadow: 0 4px 20px rgba(0,0,0,0.85); pointer-events: none;
-    }
-  </style>
-</head>
-<body>
-  <canvas id="gameCanvas"></canvas>
+const express = require('express');
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const { Server } = require('socket.io');
 
-  <!-- HUD -->
-  <div id="hud" class="hidden">
-    <div class="hud-top-left">
-      <div id="hudNetInfo">PING: -- ms | ELO: 1000</div>
-      <div class="stamina-wrap"><div id="staminaFill"></div></div>
-      <div id="hudBuffInfo" style="color:#38bdf8;font-weight:700;"></div>
-    </div>
-    <div class="scoreboard">
-      <span class="team-pill team-red">RED <span id="scoreRed">0</span></span>
-      <span id="hudTimer">02:00</span>
-      <span class="team-pill team-blue"><span id="scoreBlue">0</span> BLUE</span>
-    </div>
-    <div class="hud-top-right">
-      <button class="btn sm" onclick="sendEmote('🔥')">🔥</button>
-      <button class="btn sm" onclick="sendEmote('👏')">👏</button>
-      <button class="btn sm" onclick="openControlEditor()">🎛️</button>
-      <button class="btn sm danger" onclick="leaveMatchToMenu()">Выход</button>
-    </div>
-  </div>
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingInterval: 10000 });
+app.use(express.static(path.join(__dirname, 'public')));
 
-  <!-- TOUCH / CUSTOMIZABLE CONTROLS -->
-  <div id="touchControls" class="hidden">
-    <div id="joyZone" class="joy-zone"><div id="joyKnob" class="joy-knob"></div></div>
-    <button id="btnKick" class="act-btn" style="right:28px;bottom:28px;background:rgba(239,68,68,0.72);">УДАР</button>
-    <button id="btnPass" class="act-btn" style="right:108px;bottom:24px;background:rgba(34,197,94,0.72);">ПАС</button>
-    <button id="btnLob" class="act-btn" style="right:178px;bottom:68px;background:rgba(59,130,246,0.72);">НАВЕС</button>
-    <button id="btnFinesse" class="act-btn" style="right:104px;bottom:102px;background:rgba(168,85,247,0.72);">КРУЧ.</button>
-    <button id="btnDash" class="act-btn" style="right:26px;bottom:108px;background:rgba(234,179,8,0.75);">РЫВОК</button>
-    <button id="btnTackle" class="act-btn" style="right:178px;bottom:146px;background:rgba(249,115,22,0.72);">ОТБОР</button>
-    <button id="btnAbility" class="act-btn" style="right:26px;bottom:186px;background:rgba(14,165,233,0.8);">НАВЫК</button>
-  </div>
+// ==== CONSTANTS & BALANCE ====
+const PLAYER_R = 30, BALL_R = 20;
+const PLAYER_MAX = 390, DASH_IMPULSE = 660;
+const PLAYER_ACCEL = 1350;
+const FRICTION = 0.965, BOUNCE = 0.78;
+const KICK_MAX = 980, PASS_MAX = 660, LOB_MAX = 820, FINESSE_MAX = 860;
+const DASH_CD = 1.7, TACKLE_CD = 1.8, ABILITY_CD = 6.5;
+const DRIBBLE_DIST = PLAYER_R + BALL_R + 3;
+const SERVER_TICK = 60, SYNC_RATE = 30, MAX_PLAYERS = 8;
+const GOAL_DEPTH = 78;
+const AFK_TIMEOUT_MS = 35000;
 
-  <div id="bannerText" class="banner hidden"></div>
-  <div id="toastBox" class="toast hidden"></div>
+const REGIONS = {
+  auto: { label: 'Авто (мин. пинг)', latencyBase: 18 },
+  eu:   { label: 'Европа (EU)', latencyBase: 28 },
+  ru:   { label: 'Восточная Европа / RU', latencyBase: 22 },
+  us:   { label: 'Северная Америка (US)', latencyBase: 65 },
+  asia: { label: 'Азия (ASIA)', latencyBase: 55 }
+};
 
-  <!-- MAIN MENU -->
-  <div id="menuOverlay" class="overlay">
-    <div class="card">
-      <div class="between" style="margin-bottom:10px;">
-        <div>
-          <h2 style="display:flex;align-items:center;gap:8px;">⚽ Ball Brawl Pro <span class="badge">v2.0</span></h2>
-          <div style="font-size:12px;color:var(--muted);" id="accIdLabel">ID: --</div>
-        </div>
-        <div class="row">
-          <span class="badge gold">🪙 <span id="uiCoins">0</span></span>
-          <span class="badge">🏆 ELO <span id="uiElo">1000</span></span>
-          <span class="badge green" id="uiConnStatus">Онлайн</span>
-        </div>
-      </div>
+const FORMATIONS = {
+  '4-3-3': { attackBias: 0.14, spreadY: 1.05 },
+  '4-4-2': { attackBias: 0.0,  spreadY: 1.0 },
+  '3-5-2': { attackBias: 0.08, spreadY: 1.15 },
+  '5-3-2': { attackBias: -0.12, spreadY: 0.92 }
+};
 
-      <div class="tabs">
-        <div class="tab active" data-tab="play" onclick="switchTab('play')">🎮 Играть</div>
-        <div class="tab" data-tab="tactics" onclick="switchTab('tactics')">📋 Тактика и Навык</div>
-        <div class="tab" data-tab="lan" onclick="switchTab('lan')">📡 Локальная сеть (LAN)</div>
-        <div class="tab" data-tab="shop" onclick="switchTab('shop')">🛒 Магазин и Сезон</div>
-        <div class="tab" data-tab="friends" onclick="switchTab('friends')">👥 Друзья</div>
-        <div class="tab" data-tab="promo" onclick="switchTab('promo')">🎁 Промокоды</div>
-        <div class="tab hidden" id="tabAdminBtn" data-tab="admin" onclick="switchTab('admin')">🛡️ Админ</div>
-      </div>
+const TACTICS = {
+  balanced: { speedMult: 1.0,  shotMult: 1.0,  staminaDrain: 1.0 },
+  attack:   { speedMult: 1.06, shotMult: 1.1,  staminaDrain: 1.2 },
+  defense:  { speedMult: 0.97, shotMult: 0.96, staminaDrain: 0.85 },
+  press:    { speedMult: 1.09, shotMult: 1.03, staminaDrain: 1.3 }
+};
 
-      <!-- TAB: PLAY -->
-      <div id="tab-play" class="tab-pane">
-        <div class="grid-2">
-          <div class="box">
-            <h3>Профиль игрока</h3>
-            <div class="grid-2">
-              <div>
-                <label>Никнейм</label>
-                <input id="inpNick" maxlength="14" placeholder="Игрок" />
-              </div>
-              <div>
-                <label>Номер на форме (0-99)</label>
-                <input id="inpNum" type="number" min="0" max="99" value="10" />
-              </div>
-              <div>
-                <label>Цвет формы</label>
-                <input id="inpColor" type="color" value="#ff3366" style="height:38px;padding:3px;" />
-              </div>
-              <div>
-                <label>Регион подбора</label>
-                <select id="selRegion">
-                  <option value="auto">Авто (мин. пинг)</option>
-                  <option value="ru">Восточная Европа / RU</option>
-                  <option value="eu">Европа (EU)</option>
-                  <option value="us">Северная Америка (US)</option>
-                  <option value="asia">Азия (ASIA)</option>
-                </select>
-              </div>
-              <div>
-                <label>Скин игрока</label>
-                <select id="selPlayerSkin"></select>
-              </div>
-              <div>
-                <label>Скин мяча</label>
-                <select id="selBallSkin"></select>
-              </div>
-            </div>
-            <div class="row" style="margin-top:10px;">
-              <button class="btn sm" onclick="openControlEditor()">🎛️ Настроить кнопки управления</button>
-            </div>
-          </div>
+const ABILITIES = {
+  turbo_surge:    { label: 'Турбо-рывок',   cd: ABILITY_CD },
+  power_cannon:   { label: 'Пушечный удар', cd: ABILITY_CD },
+  magnet_dribble: { label: 'Магнит мяча',   cd: ABILITY_CD },
+  iron_wall:      { label: 'Железный блок', cd: ABILITY_CD }
+};
 
-          <div class="box">
-            <h3>Быстрый матч и режимы</h3>
-            <div class="grid-2" style="margin-bottom:10px;">
-              <div>
-                <label>Формат</label>
-                <select id="selTeamSize">
-                  <option value="1">1 на 1 (Дуэль)</option>
-                  <option value="2" selected>2 на 2 (Командный)</option>
-                </select>
-              </div>
-              <div>
-                <label>Арена (для офлайн / приват.)</label>
-                <select id="selArena">
-                  <option value="classic">Классический стадион</option>
-                  <option value="neon_stadium">Ночной Неон-Стадион</option>
-                  <option value="desert_pitch">Пустынная Арена (с препятствиями)</option>
-                  <option value="snow_cup">Зимний Кубок (скользкий лёд)</option>
-                  <option value="ice">Ледовая Арена</option>
-                  <option value="obstacles">Тактическая с блоками</option>
-                  <option value="narrow">Узкое скоростное поле</option>
-                </select>
-              </div>
-            </div>
-            <div class="row">
-              <button class="btn primary" style="flex:1;" onclick="startOnlineMatchmaking()">⚡ Найти онлайн-матч (ELO)</button>
-              <button class="btn success" style="flex:1;" onclick="startOfflineBotMatch()">🤖 Тренировка с ботами</button>
-            </div>
+const ARENAS = {
+  classic:      { w: 1800, h: 1100, obstacles: [], color: '#24662c' },
+  ice:          { w: 1800, h: 1100, obstacles: [], color: '#1f5a78' },
+  obstacles:    { w: 1900, h: 1200, obstacles: [[-300, -200, 100, 60], [300, 200, 100, 60], [0, 0, 80, 80]], color: '#24662c' },
+  narrow:       { w: 2400, h: 800,  obstacles: [], color: '#24662c' },
+  neon_stadium: { w: 1860, h: 1120, obstacles: [], color: '#14263b' },
+  desert_pitch: { w: 1840, h: 1080, obstacles: [[-420, 0, 70, 70], [420, 0, 70, 70]], color: '#4d6b28' },
+  snow_cup:     { w: 1800, h: 1100, obstacles: [], color: '#26596e' }
+};
 
-            <hr style="border-color:var(--border);margin:12px 0;" />
-            <h3>Приватные комнаты</h3>
-            <div class="row" style="margin-bottom:8px;">
-              <button class="btn gold" onclick="createPrivateRoomUI()">🔒 Создать приватную комнату</button>
-              <input id="inpPrivCode" placeholder="Код комнаты (6 симв.)" style="max-width:180px;text-transform:uppercase;" />
-              <button class="btn" onclick="joinPrivateRoomUI()">Войти по коду</button>
-            </div>
-            <div class="row">
-              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="chkOvertime" checked style="width:auto;" /> Овертайм</label>
-              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="chkGoldenGoal" style="width:auto;" /> Золотой гол</label>
-              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="chkAutoBalance" checked style="width:auto;" /> Автобаланс</label>
-            </div>
-          </div>
-        </div>
-      </div>
+const MODES = {
+  classic:    { goals: 5 },
+  time:       { duration: 120 },
+  golden:     { goals: 1 },
+  chaos:      { goals: 5 },
+  penalty:    { goals: 5 },
+  tournament: { goals: 3 }
+};
+const WEATHERS = { clear: 1, rain: 0.94, night: 1, fog: 1 };
+const CELEBRATIONS = ['slide', 'spin', 'jump', 'flex'];
 
-      <!-- TAB: TACTICS -->
-      <div id="tab-tactics" class="tab-pane hidden">
-        <div class="grid-3">
-          <div class="box">
-            <h3>Схема (Расстановка)</h3>
-            <select id="selFormation">
-              <option value="4-3-3">4-3-3 (Атакующий выдвинутый старт)</option>
-              <option value="4-4-2">4-4-2 (Сбалансированная классика)</option>
-              <option value="3-5-2">3-5-2 (Широкий охват флангов)</option>
-              <option value="5-3-2">5-3-2 (Глубокая оборона)</option>
-            </select>
-            <p style="font-size:12px;color:var(--muted);margin-top:8px;">Влияет на стартовую позицию игроков при розыгрыше с центра поля и ширину построения.</p>
-          </div>
-          <div class="box">
-            <h3>Тактика команды</h3>
-            <select id="selTactic">
-              <option value="balanced">Сбалансированная (100% скорость / удар)</option>
-              <option value="attack">Атакующая (+6% скорость, +10% удар, -20% стамина)</option>
-              <option value="defense">Оборонительная (+15% экономия выносливости)</option>
-              <option value="press">Высокий прессинг (+9% скорость, высокий расход сил)</option>
-            </select>
-            <p style="font-size:12px;color:var(--muted);margin-top:8px;">Определяет баланс между максимальной скоростью, силой удара и расходом выносливости.</p>
-          </div>
-          <div class="box">
-            <h3>Активная способность</h3>
-            <select id="selAbility">
-              <option value="turbo_surge">⚡ Турбо-рывок (мгновенный импульс и +22% скорость)</option>
-              <option value="power_cannon">💥 Пушечный удар (+25% к силе ударов на 2.8с)</option>
-              <option value="magnet_dribble">🧲 Магнит мяча (притягивает свободный мяч рядом)</option>
-              <option value="iron_wall">🛡️ Железный блок (устойчивость в силовых стыках)</option>
-            </select>
-            <p style="font-size:12px;color:var(--muted);margin-top:8px;">Активируется кнопкой «НАВЫК» (перезарядка 6.5 сек).</p>
-          </div>
-        </div>
-        <div style="margin-top:10px;">
-          <button class="btn primary" onclick="savePrefsUI()">💾 Сохранить тактику и способности</button>
-        </div>
-      </div>
+const PLAYER_SKIN_CATALOG = {
+  plain: { price: 0, rarity: 'common' },
+  star:  { price: 500, rarity: 'common' },
+  fire:  { price: 1000, rarity: 'rare' },
+  ice:   { price: 2000, rarity: 'epic' },
+  metal: { price: 4000, rarity: 'legendary' }
+};
+const BALL_SKIN_CATALOG = {
+  classic: { price: 0, rarity: 'common' },
+  beach:   { price: 500, rarity: 'common' },
+  fire:    { price: 1000, rarity: 'rare' },
+  ice:     { price: 1000, rarity: 'rare' },
+  neon:    { price: 2000, rarity: 'epic' },
+  star:    { price: 4000, rarity: 'legendary' }
+};
+const COMMON_PLAYER_SKINS = ['star'];
+const COMMON_BALL_SKINS = ['beach'];
 
-      <!-- TAB: LAN -->
-      <div id="tab-lan" class="tab-pane hidden">
-        <div class="grid-2">
-          <div class="box">
-            <h3>Создать LAN-игру (Локальная сеть / Wi-Fi)</h3>
-            <p style="font-size:12px;color:var(--muted);">Работает без интернета по прямому WebRTC DataChannel между устройствами в одной локальной сети или через обмен кодом приглашения.</p>
-            <button class="btn success" onclick="lanCreateHost()">📡 Создать локальный сервер (Хост)</button>
-            <div id="lanHostPanel" class="hidden" style="margin-top:10px;">
-              <label>1. Отправьте этот код приглашения (Offer) второму игроку:</label>
-              <textarea id="lanOfferOut" rows="3" readonly style="width:100%;background:#0f172a;color:#38bdf8;border-radius:8px;padding:6px;font-size:11px;"></textarea>
-              <label style="margin-top:6px;">2. Вставьте ответный код (Answer) от второго игрока:</label>
-              <textarea id="lanAnswerIn" rows="3" style="width:100%;background:#0f172a;color:#fff;border-radius:8px;padding:6px;font-size:11px;"></textarea>
-              <button class="btn primary sm" style="margin-top:6px;" onclick="lanHostAcceptAnswer()">Подключить игрока и начать LAN-матч</button>
-            </div>
-          </div>
-          <div class="box">
-            <h3>Подключиться к LAN-игре</h3>
-            <label>1. Вставьте код приглашения (Offer) от хоста:</label>
-            <textarea id="lanOfferIn" rows="3" style="width:100%;background:#0f172a;color:#fff;border-radius:8px;padding:6px;font-size:11px;"></textarea>
-            <button class="btn primary sm" style="margin-top:6px;" onclick="lanJoinCreateAnswer()">Сгенерировать ответный код (Answer)</button>
-            <div id="lanClientPanel" class="hidden" style="margin-top:8px;">
-              <label>2. Передайте этот ответный код хосту:</label>
-              <textarea id="lanAnswerOut" rows="3" readonly style="width:100%;background:#0f172a;color:#4ade80;border-radius:8px;padding:6px;font-size:11px;"></textarea>
-            </div>
-          </div>
-        </div>
-      </div>
+// ==== PERSISTENT DATA STORE & SECURE SECRETS ====
+const DATA_FILE = path.join(__dirname, 'ball_brawl_data.json');
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const RAW_ADMIN_SECRET = process.env.ADMIN_SECRET || '';
+const ADMIN_SECRET_HASH = RAW_ADMIN_SECRET
+  ? crypto.createHash('sha256').update(RAW_ADMIN_SECRET).digest('hex')
+  : crypto.createHash('sha256').update(crypto.randomBytes(32).toString('hex')).digest('hex');
 
-      <!-- TAB: SHOP & SEASON -->
-      <div id="tab-shop" class="tab-pane hidden">
-        <div class="grid-2">
-          <div class="box">
-            <h3>Скины игрока</h3>
-            <div id="shopPlayerSkins"></div>
-          </div>
-          <div class="box">
-            <h3>Скины мяча</h3>
-            <div id="shopBallSkins"></div>
-          </div>
-        </div>
-        <div class="box" style="margin-top:12px;">
-          <div class="between">
-            <h3>Сезонный пропуск и квесты</h3>
-            <span class="badge">XP: <span id="uiSeasonXp">0</span></span>
-          </div>
-          <div id="seasonQuestsList" style="margin-top:8px;"></div>
-        </div>
-      </div>
+if (!RAW_ADMIN_SECRET) {
+  console.warn('ADMIN_SECRET env variable is not set; admin promo login is disabled until ADMIN_SECRET is configured in environment.');
+}
 
-      <!-- TAB: FRIENDS -->
-      <div id="tab-friends" class="tab-pane hidden">
-        <div class="grid-2">
-          <div class="box">
-            <h3>Поиск игроков по нику или ID</h3>
-            <div class="row" style="margin-bottom:8px;">
-              <input id="inpFriendSearch" placeholder="Ник или acc_..." />
-              <button class="btn primary sm" onclick="searchPlayersUI()">Найти</button>
-            </div>
-            <div id="friendSearchResults"></div>
-          </div>
-          <div class="box">
-            <h3>Мои друзья и входящие заявки</h3>
-            <div id="friendRequestsBox"></div>
-            <div id="friendsListBox"></div>
-          </div>
-        </div>
-      </div>
+const DEFAULT_PROMOS = {
+  'BALL2026':   { type: 'coins', value: 60, maxUses: 100000, usedCount: 0, active: true },
+  'WELCOME':    { type: 'coins', value: 40, maxUses: 100000, usedCount: 0, active: true },
+  'GOALMASTER': { type: 'coins', value: 85, maxUses: 100000, usedCount: 0, active: true },
+  'FOOTBALL':   { type: 'coins', value: 110, maxUses: 100000, usedCount: 0, active: true },
+  'FREESKIN':   { type: 'common_skin', value: 1, maxUses: 100000, usedCount: 0, active: true }
+};
 
-      <!-- TAB: PROMO -->
-      <div id="tab-promo" class="tab-pane hidden">
-        <div class="box" style="max-width:460px;">
-          <h3>Активация промокода</h3>
-          <p style="font-size:12px;color:var(--muted);">Доступные стартовые коды: WELCOME, BALL2026, GOALMASTER, FREESKIN</p>
-          <div class="row">
-            <input id="inpPromo" placeholder="Введите код..." />
-            <button class="btn gold" onclick="redeemPromoUI()">Активировать</button>
-          </div>
-        </div>
-      </div>
+let db = {
+  accounts: {},
+  promos: JSON.parse(JSON.stringify(DEFAULT_PROMOS)),
+  adminLogs: [],
+  claimedMatchAwards: {}
+};
 
-      <!-- TAB: ADMIN -->
-      <div id="tab-admin" class="tab-pane hidden">
-        <div class="box">
-          <div class="between">
-            <h3>Панель администратора</h3>
-            <button class="btn sm" onclick="loadAdminDashboard()">Обновить</button>
-          </div>
-          <div id="adminContent" style="margin-top:10px;font-size:12px;"></div>
-        </div>
-      </div>
-    </div>
-  </div>
+function signAccountToken(accountId) {
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(String(accountId)).digest('hex');
+  return `${accountId}.${sig}`;
+}
 
-  <!-- LOBBY OVERLAY -->
-  <div id="lobbyOverlay" class="overlay hidden">
-    <div class="card" style="max-width:680px;">
-      <div class="between" style="margin-bottom:10px;">
-        <div>
-          <h2 id="lobbyTitle">Комната ожидания</h2>
-          <div style="font-size:12px;color:var(--muted);" id="lobbySub">Ожидание игроков...</div>
-        </div>
-        <button class="btn danger sm" onclick="leaveLobby()">Покинуть</button>
-      </div>
-      <div id="lobbyPlayersList" style="margin-bottom:12px;"></div>
-      <div class="row">
-        <button class="btn sm" onclick="socket && socket.emit('switchTeam','red')">За Красных</button>
-        <button class="btn sm" onclick="socket && socket.emit('switchTeam','blue')">За Синих</button>
-        <button class="btn sm" onclick="socket && socket.emit('switchTeam','spec')">Зритель</button>
-        <button class="btn success sm" onclick="socket && socket.emit('setOrientationReady',{ready:true})">✅ Готов к матчу</button>
-      </div>
-    </div>
-  </div>
+function verifyAccountToken(token, requestedId) {
+  if (!token || typeof token !== 'string') return null;
+  const idx = token.lastIndexOf('.');
+  if (idx <= 0) return null;
+  const idPart = token.slice(0, idx);
+  const sigPart = token.slice(idx + 1);
+  if (requestedId && String(requestedId) !== idPart) return null;
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(idPart).digest('hex');
+  try {
+    const a = Buffer.from(sigPart, 'hex');
+    const b = Buffer.from(expected, 'hex');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  } catch (e) {
+    return null;
+  }
+  return idPart;
+}
 
-  <!-- CONTROL LAYOUT EDITOR OVERLAY -->
-  <div id="controlEditorOverlay" class="overlay hidden" style="background:rgba(11,17,32,0.78);">
-    <div class="card" style="max-width:460px;">
-      <h3>🎛️ Редактор кнопок управления</h3>
-      <p style="font-size:12px;color:var(--muted);">Перетаскивайте кнопки по экрану, измените их масштаб или сбросьте по умолчанию.</p>
-      <div style="margin:10px 0;">
-        <label>Размер кнопок: <span id="ctrlScaleVal">100%</span></label>
-        <input id="ctrlScaleRange" type="range" min="75" max="140" value="100" oninput="previewControlScale(this.value)" />
-      </div>
-      <div class="row">
-        <button class="btn primary" onclick="saveCustomControlsUI()">Сохранить расположение</button>
-        <button class="btn" onclick="resetCustomControlsUI()">Сбросить</button>
-        <button class="btn danger" onclick="closeControlEditor()">Закрыть</button>
-      </div>
-    </div>
-  </div>
+function resolveVerifiedAccount(socket, payload = {}) {
+  const verifiedFromToken = verifyAccountToken(payload.sessionToken, payload.accountId);
+  if (verifiedFromToken) {
+    socket.accountId = verifiedFromToken;
+    return getOrCreateAccount(verifiedFromToken, payload.nick);
+  }
+  if (socket.accountId && db.accounts[socket.accountId]) {
+    return getOrCreateAccount(socket.accountId, payload.nick);
+  }
+  // Never allow forging an existing accountId without a valid sessionToken
+  const cleanId = 'acc_' + crypto.randomBytes(6).toString('hex');
+  socket.accountId = cleanId;
+  return getOrCreateAccount(cleanId, payload.nick);
+}
 
-  <script>
-    // ==== STATE & CONFIG ====
-    const PLAYER_SKINS = {
-      plain: { name: 'Стандарт', price: 0 },
-      star:  { name: 'Звезда (Обычный)', price: 500 },
-      fire:  { name: 'Пламя (Редкий)', price: 1000 },
-      ice:   { name: 'Лёд (Эпик)', price: 2000 },
-      metal: { name: 'Титан (Легендарный)', price: 4000 }
+function todayStr() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function sanitize(s, d = 'Игрок') { return String(s || d).replace(/[<>]/g, '').trim().slice(0, 14) || d; }
+function sanitizeNum(n) { const v = parseInt(n, 10); return isNaN(v) ? 0 : Math.max(0, Math.min(99, v)); }
+function sanitizeColor(c) { return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#ff3366'; }
+
+function normalizeAccount(acc, cleanId, nick) {
+  acc.id = cleanId;
+  if (nick) acc.nick = sanitize(nick, acc.nick);
+  if (!acc.nick) acc.nick = 'Игрок';
+  acc.coins = Math.max(0, Number(acc.coins) || 0);
+  acc.elo = Math.max(100, Math.min(3500, Number(acc.elo) || 1000));
+  acc.wins = Math.max(0, Number(acc.wins) || 0);
+  acc.goals = Math.max(0, Number(acc.goals) || 0);
+  acc.assists = Math.max(0, Number(acc.assists) || 0);
+  acc.matches = Math.max(0, Number(acc.matches) || 0);
+  acc.shots = Math.max(0, Number(acc.shots) || 0);
+  acc.passes = Math.max(0, Number(acc.passes) || 0);
+  acc.penaltyRecord = Math.max(0, Number(acc.penaltyRecord) || 0);
+  if (!Array.isArray(acc.ownedSkins) || !acc.ownedSkins.includes('plain')) acc.ownedSkins = ['plain', ...(acc.ownedSkins || [])];
+  if (!Array.isArray(acc.ownedBallSkins) || !acc.ownedBallSkins.includes('classic')) acc.ownedBallSkins = ['classic', ...(acc.ownedBallSkins || [])];
+  if (!Array.isArray(acc.usedPromos)) acc.usedPromos = [];
+  if (!Array.isArray(acc.friends)) acc.friends = [];
+  if (!Array.isArray(acc.friendRequestsIn)) acc.friendRequestsIn = [];
+  if (!Array.isArray(acc.friendRequestsOut)) acc.friendRequestsOut = [];
+  if (!Array.isArray(acc.blocked)) acc.blocked = [];
+  if (!Array.isArray(acc.recentOpponents)) acc.recentOpponents = [];
+  if (!acc.customControls || typeof acc.customControls !== 'object') acc.customControls = null;
+  if (!acc.playerPrefs || typeof acc.playerPrefs !== 'object') {
+    acc.playerPrefs = { formation: '4-3-3', tactic: 'balanced', ability: 'turbo_surge', region: 'auto' };
+  }
+  if (!acc.season || typeof acc.season !== 'object') {
+    acc.season = { xp: 0, claimedTiers: [], quests: { goals: 0, passes: 0, wins: 0, claimed: {} } };
+  }
+  if (!acc.season.quests) acc.season.quests = { goals: 0, passes: 0, wins: 0, claimed: {} };
+  if (!acc.season.quests.claimed) acc.season.quests.claimed = {};
+  if (!Array.isArray(acc.season.claimedTiers)) acc.season.claimedTiers = [];
+  acc.season.xp = Math.max(0, Number(acc.season.xp) || 0);
+
+  const t = todayStr();
+  if (!acc.daily || acc.daily.date !== t) {
+    acc.daily = {
+      date: t,
+      loginClaimed: false,
+      loginReward: 0,
+      firstMatchDone: false,
+      goals: 0,
+      wins: 0,
+      questReward: 90 + Math.floor(Math.random() * 86),
+      questClaimed: false
     };
-    const BALL_SKINS = {
-      classic: { name: 'Классика', price: 0 },
-      beach:   { name: 'Пляжный (Обычный)', price: 500 },
-      fire:    { name: 'Огненный (Редкий)', price: 1000 },
-      ice:     { name: 'Ледяной (Редкий)', price: 1000 },
-      neon:    { name: 'Неон (Эпик)', price: 2000 },
-      star:    { name: 'Чемпионский (Легендарный)', price: 4000 }
-    };
-    const ARENA_THEMES = {
-      classic:      { w: 1800, h: 1100, grass1: '#23632b', grass2: '#1f5726', line: 'rgba(255,255,255,0.75)', obstacles: [] },
-      neon_stadium: { w: 1860, h: 1120, grass1: '#0f1f33', grass2: '#132842', line: '#38bdf8', obstacles: [] },
-      desert_pitch: { w: 1840, h: 1080, grass1: '#526e2a', grass2: '#465e23', line: '#fde047', obstacles: [[-420,0,70,70],[420,0,70,70]] },
-      snow_cup:     { w: 1800, h: 1100, grass1: '#255c73', grass2: '#2d6c87', line: '#e0f2fe', obstacles: [] },
-      ice:          { w: 1800, h: 1100, grass1: '#1f5a78', grass2: '#24688a', line: '#bae6fd', obstacles: [] },
-      obstacles:    { w: 1900, h: 1200, grass1: '#24662c', grass2: '#1e5424', line: '#fff', obstacles: [[-300,-200,100,60],[300,200,100,60],[0,0,80,80]] },
-      narrow:       { w: 2400, h: 800,  grass1: '#24662c', grass2: '#1f5726', line: '#fff', obstacles: [] }
-    };
+  }
+  if (!acc.daily.questReward || acc.daily.questReward < 75 || acc.daily.questReward > 200) {
+    acc.daily.questReward = 90 + Math.floor(Math.random() * 86);
+  }
+  acc.lastSeen = Date.now();
+  return acc;
+}
 
-    let account = null;
-    let sessionToken = localStorage.getItem('bb_session_token') || '';
-    let savedAccId = localStorage.getItem('bb_account_id') || '';
-    let socket = null;
-    let pingMs = 0;
-
-    let gameModeType = 'none'; // 'online' | 'offline' | 'lan_host' | 'lan_client'
-    let currentRoom = null;
-    let matchState = null;
-    let localPlayers = {};
-    let localBalls = [];
-    let matchSettings = { arena: 'classic', mode: 'classic', ballSkin: 'classic' };
-    let score = { red: 0, blue: 0 };
-    let timerSec = 120;
-    let netWave = { left: 0, right: 0 };
-    let shakePower = 0;
-    let particles = [];
-    let emotesFloating = [];
-
-    // Input & Touch
-    const keys = {};
-    const joyVec = { x: 0, y: 0 };
-    let inputSeq = 0;
-    let chargeState = { active: false, type: null, startTs: 0 };
-    let customControls = null;
-    let editingControls = false;
-
-    // ==== UI HELPERS ====
-    function showToast(msg) {
-      const el = document.getElementById('toastBox');
-      el.textContent = msg;
-      el.classList.remove('hidden');
-      clearTimeout(el._t);
-      el._t = setTimeout(() => el.classList.add('hidden'), 3200);
-    }
-
-    function showBanner(msg, color = '#fff', ms = 1800) {
-      const el = document.getElementById('bannerText');
-      el.textContent = msg;
-      el.style.color = color;
-      el.classList.remove('hidden');
-      clearTimeout(el._t);
-      el._t = setTimeout(() => el.classList.add('hidden'), ms);
-    }
-
-    function switchTab(name) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-      document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
-      const pane = document.getElementById('tab-' + name);
-      if (pane) pane.classList.remove('hidden');
-      if (name === 'admin') loadAdminDashboard();
-    }
-
-    function syncAccountUI() {
-      if (!account) return;
-      localStorage.setItem('bb_account_id', account.id);
-      document.getElementById('accIdLabel').textContent = `ID: ${account.id} | Побед: ${account.wins} | Голов: ${account.goals}`;
-      document.getElementById('uiCoins').textContent = account.coins;
-      document.getElementById('uiElo').textContent = account.elo || 1000;
-      document.getElementById('uiSeasonXp').textContent = account.season?.xp || 0;
-      if (!document.getElementById('inpNick').value) document.getElementById('inpNick').value = account.nick;
-
-      if (account.playerPrefs) {
-        document.getElementById('selFormation').value = account.playerPrefs.formation || '4-3-3';
-        document.getElementById('selTactic').value = account.playerPrefs.tactic || 'balanced';
-        document.getElementById('selAbility').value = account.playerPrefs.ability || 'turbo_surge';
-        document.getElementById('selRegion').value = account.playerPrefs.region || 'auto';
-      }
-
-      // Skins selects
-      const pSel = document.getElementById('selPlayerSkin');
-      const curP = pSel.value;
-      pSel.innerHTML = account.ownedSkins.map(id => `<option value="${id}">${PLAYER_SKINS[id]?.name || id}</option>`).join('');
-      if (account.ownedSkins.includes(curP)) pSel.value = curP;
-
-      const bSel = document.getElementById('selBallSkin');
-      const curB = bSel.value;
-      bSel.innerHTML = account.ownedBallSkins.map(id => `<option value="${id}">${BALL_SKINS[id]?.name || id}</option>`).join('');
-      if (account.ownedBallSkins.includes(curB)) bSel.value = curB;
-
-      // Shop lists
-      document.getElementById('shopPlayerSkins').innerHTML = Object.entries(PLAYER_SKINS).map(([id, info]) => {
-        const owned = account.ownedSkins.includes(id);
-        return `<div class="list-item"><span>${info.name}</span>${owned
-          ? '<span class="badge green">Куплено</span>'
-          : `<button class="btn gold sm" onclick="buySkinUI('player','${id}')">🪙 ${info.price}</button>`}</div>`;
-      }).join('');
-
-      document.getElementById('shopBallSkins').innerHTML = Object.entries(BALL_SKINS).map(([id, info]) => {
-        const owned = account.ownedBallSkins.includes(id);
-        return `<div class="list-item"><span>${info.name}</span>${owned
-          ? '<span class="badge green">Куплено</span>'
-          : `<button class="btn gold sm" onclick="buySkinUI('ball','${id}')">🪙 ${info.price}</button>`}</div>`;
-      }).join('');
-
-      // Quests
-      const q = account.season?.quests || { goals: 0, passes: 0, wins: 0, claimed: {} };
-      const qDefs = [
-        { key: 'goals', title: 'Забить 5 голов', cur: q.goals || 0, max: 5, rew: 120 },
-        { key: 'passes', title: 'Сделать 15 передач', cur: q.passes || 0, max: 15, rew: 90 },
-        { key: 'wins', title: 'Выиграть 2 матча', cur: q.wins || 0, max: 2, rew: 150 }
-      ];
-      document.getElementById('seasonQuestsList').innerHTML = qDefs.map(item => {
-        const done = item.cur >= item.max;
-        const claimed = q.claimed?.[item.key];
-        return `<div class="list-item">
-          <span>${item.title} (${Math.min(item.cur, item.max)}/${item.max})</span>
-          ${claimed ? '<span class="badge">Получено</span>' : (done
-            ? `<button class="btn success sm" onclick="claimQuestUI('${item.key}')">Забрать +${item.rew}</button>`
-            : `<span class="badge gold">+${item.rew} 🪙</span>`)}
-        </div>`;
-      }).join('');
-
-      if (account.customControls) {
-        customControls = account.customControls;
-        applyCustomControlsLayout();
+function loadDB() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      db.accounts = parsed.accounts || {};
+      db.promos = Object.assign(JSON.parse(JSON.stringify(DEFAULT_PROMOS)), parsed.promos || {});
+      db.adminLogs = Array.isArray(parsed.adminLogs) ? parsed.adminLogs.slice(-500) : [];
+      db.claimedMatchAwards = parsed.claimedMatchAwards || {};
+      for (const [id, acc] of Object.entries(db.accounts)) {
+        normalizeAccount(acc, id);
       }
     }
+  } catch (e) {
+    console.error('DB load error:', e.message);
+  }
+}
 
-    // ==== SOCKET CONNECTION ====
-    function initSocket() {
-      if (typeof io === 'undefined') {
-        document.getElementById('uiConnStatus').textContent = 'Офлайн / LAN';
+let saveTimer = null;
+function scheduleSaveDB() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      const keys = Object.keys(db.claimedMatchAwards);
+      if (keys.length > 2500) {
+        keys.slice(0, keys.length - 1800).forEach(k => delete db.claimedMatchAwards[k]);
+      }
+      fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf8');
+    } catch (e) {
+      console.error('DB save error:', e.message);
+    }
+  }, 350);
+}
+loadDB();
+
+function getOrCreateAccount(accountId, nick) {
+  let cleanId = String(accountId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+  if (!cleanId) cleanId = 'acc_' + crypto.randomBytes(6).toString('hex');
+  if (!db.accounts[cleanId]) {
+    db.accounts[cleanId] = normalizeAccount({
+      id: cleanId,
+      nick: sanitize(nick || 'Игрок'),
+      coins: 0,
+      elo: 1000,
+      wins: 0,
+      goals: 0,
+      assists: 0,
+      matches: 0,
+      shots: 0,
+      passes: 0,
+      penaltyRecord: 0,
+      ownedSkins: ['plain'],
+      ownedBallSkins: ['classic'],
+      usedPromos: [],
+      friends: [],
+      friendRequestsIn: [],
+      friendRequestsOut: [],
+      blocked: [],
+      recentOpponents: [],
+      customControls: null,
+      playerPrefs: { formation: '4-3-3', tactic: 'balanced', ability: 'turbo_surge', region: 'auto' },
+      season: { xp: 0, claimedTiers: [], quests: { goals: 0, passes: 0, wins: 0, claimed: {} } },
+      createdAt: Date.now(),
+      lastSeen: Date.now()
+    }, cleanId, nick);
+    scheduleSaveDB();
+    return db.accounts[cleanId];
+  }
+  const acc = normalizeAccount(db.accounts[cleanId], cleanId, nick);
+  scheduleSaveDB();
+  return acc;
+}
+
+function logAdminAction(actorId, action, details) {
+  db.adminLogs.push({
+    ts: new Date().toISOString(),
+    actorId: String(actorId || 'unknown'),
+    action: String(action),
+    details
+  });
+  if (db.adminLogs.length > 500) db.adminLogs.shift();
+  scheduleSaveDB();
+}
+
+function publicAccountPayload(acc) {
+  return {
+    id: acc.id,
+    nick: acc.nick,
+    coins: acc.coins,
+    elo: acc.elo || 1000,
+    wins: acc.wins,
+    goals: acc.goals,
+    assists: acc.assists,
+    matches: acc.matches,
+    shots: acc.shots,
+    passes: acc.passes,
+    penaltyRecord: acc.penaltyRecord,
+    ownedSkins: acc.ownedSkins,
+    ownedBallSkins: acc.ownedBallSkins,
+    blocked: acc.blocked || [],
+    recentOpponents: acc.recentOpponents || [],
+    customControls: acc.customControls || null,
+    playerPrefs: acc.playerPrefs || { formation: '4-3-3', tactic: 'balanced', ability: 'turbo_surge', region: 'auto' },
+    season: acc.season,
+    daily: acc.daily
+  };
+}
+
+// ==== RUNTIME STATE, FRIENDS, INVITES & PRIVATE ROOMS ====
+const rooms = {};
+const privateRooms = {};
+const matchInvites = {};
+const disconnectedSessions = {};
+const adminSessions = new Set();
+
+function genRoomId(prefix = 'M_') {
+  const id = prefix + crypto.randomBytes(4).toString('hex').toUpperCase();
+  return rooms[id] ? genRoomId(prefix) : id;
+}
+
+function genInviteCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[crypto.randomInt(0, chars.length)];
+  return privateRooms[code] ? genInviteCode() : code;
+}
+
+function getSocketsByAccountId(accountId) {
+  const res = [];
+  if (!accountId) return res;
+  for (const [, s] of io.sockets.sockets) {
+    if (s.accountId === accountId && s.connected) res.push(s);
+  }
+  return res;
+}
+
+function getUserStatus(accountId) {
+  const onlineSockets = getSocketsByAccountId(accountId);
+  if (!onlineSockets.length) return 'offline';
+  for (const s of onlineSockets) {
+    if (s.roomId && rooms[s.roomId]) {
+      return rooms[s.roomId].started ? 'in_match' : 'in_lobby';
+    }
+  }
+  return 'online';
+}
+
+function buildFriendsPayload(acc) {
+  const friends = (acc.friends || []).map(fid => {
+    const facc = db.accounts[fid];
+    if (!facc) return null;
+    const status = getUserStatus(fid);
+    const activeSocket = getSocketsByAccountId(fid).find(s => s.roomId && rooms[s.roomId]);
+    const r = activeSocket ? rooms[activeSocket.roomId] : null;
+    return {
+      id: facc.id,
+      nick: facc.nick,
+      elo: facc.elo || 1000,
+      wins: facc.wins,
+      goals: facc.goals,
+      status,
+      roomId: r ? r.id : null,
+      roomCode: r && r.isPrivate ? r.inviteCode : null
+    };
+  }).filter(Boolean);
+
+  const incoming = (acc.friendRequestsIn || []).map(fromId => {
+    const facc = db.accounts[fromId];
+    return facc ? { id: facc.id, nick: facc.nick, elo: facc.elo || 1000, wins: facc.wins } : null;
+  }).filter(Boolean);
+
+  const outgoing = (acc.friendRequestsOut || []).map(toId => {
+    const facc = db.accounts[toId];
+    return facc ? { id: facc.id, nick: facc.nick, status: getUserStatus(toId) } : null;
+  }).filter(Boolean);
+
+  return { friends, incoming, outgoing };
+}
+
+function pushFriendsUpdate(accountId) {
+  const acc = db.accounts[accountId];
+  if (!acc) return;
+  const payload = buildFriendsPayload(acc);
+  for (const s of getSocketsByAccountId(accountId)) {
+    s.emit('friendsUpdate', payload);
+  }
+}
+
+function leaveCurrentRoom(socket) {
+  const roomId = socket.roomId;
+  if (!roomId || !rooms[roomId]) {
+    socket.roomId = null;
+    return;
+  }
+  const room = rooms[roomId];
+  const departingPlayer = room.players[socket.id];
+  if (departingPlayer && socket.accountId && room.started && departingPlayer.team !== 'spec') {
+    const key = `${socket.accountId}:${roomId}`;
+    if (disconnectedSessions[key]) clearTimeout(disconnectedSessions[key].timeout);
+    const timer = setTimeout(() => { delete disconnectedSessions[key]; }, 60000);
+    disconnectedSessions[key] = {
+      roomId,
+      accountId: socket.accountId,
+      playerSnapshot: { ...departingPlayer },
+      disconnectedAt: Date.now(),
+      timeout: timer
+    };
+  }
+  for (const b of (room.balls || [])) { if (b.ownerId === socket.id) b.ownerId = null; }
+  delete room.players[socket.id];
+  delete room.inputs[socket.id];
+  delete room.lastSeq[socket.id];
+  delete room.lastActiveAt?.[socket.id];
+  socket.leave(roomId);
+  socket.roomId = null;
+
+  if (Object.keys(room.players).length === 0) {
+    if (room.loop) clearInterval(room.loop);
+    if (room.countdownTimer) clearTimeout(room.countdownTimer);
+    if (room.inviteCode && privateRooms[room.inviteCode] === roomId) delete privateRooms[room.inviteCode];
+    delete rooms[roomId];
+  } else {
+    if (room.host === socket.id) room.host = Object.keys(room.players)[0];
+    if (room.isPrivate && room.settings.autoBalance !== false) autoBalanceRoom(room);
+    emitRoomState(room);
+    io.to(roomId).emit('playerLeft', socket.id);
+  }
+}
+
+// ==== ANTI-SPAM & RATE LIMITING ====
+const rateBuckets = new Map();
+function allowRate(key, limitPerSec, burst = limitPerSec * 2) {
+  const now = Date.now();
+  let b = rateBuckets.get(key);
+  if (!b) {
+    b = { tokens: burst, last: now };
+    rateBuckets.set(key, b);
+  }
+  const elapsed = (now - b.last) / 1000;
+  b.last = now;
+  b.tokens = Math.min(burst, b.tokens + elapsed * limitPerSec);
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
+
+function assignTeams(room, preferredTeam = null) {
+  const maxPerTeam = room.settings.teamSize || 2;
+  const players = Object.values(room.players);
+  const r = players.filter(p => p.team === 'red').length;
+  const b = players.filter(p => p.team === 'blue').length;
+
+  if (preferredTeam === 'red' && r < maxPerTeam) return 'red';
+  if (preferredTeam === 'blue' && b < maxPerTeam) return 'blue';
+  if (preferredTeam === 'spec') return 'spec';
+
+  if (r + b >= maxPerTeam * 2) return 'spec';
+  return r <= b ? 'red' : 'blue';
+}
+
+function autoBalanceRoom(room) {
+  const maxPerTeam = room.settings.teamSize || 2;
+  const active = Object.values(room.players).filter(p => p.team !== 'spec');
+  if (active.length < 2) return;
+  const reds = active.filter(p => p.team === 'red');
+  const blues = active.filter(p => p.team === 'blue');
+  while (reds.length > blues.length + 1 && blues.length < maxPerTeam) {
+    const moved = reds.pop();
+    moved.team = 'blue';
+    blues.push(moved);
+  }
+  while (blues.length > reds.length + 1 && reds.length < maxPerTeam) {
+    const moved = blues.pop();
+    moved.team = 'red';
+    reds.push(moved);
+  }
+}
+
+function arenaBounds(room) {
+  const a = ARENAS[room.settings.arena] || ARENAS.classic;
+  return {
+    minX: -a.w / 2, maxX: a.w / 2,
+    minY: -a.h / 2, maxY: a.h / 2,
+    w: a.w, h: a.h,
+    obstacles: a.obstacles || []
+  };
+}
+
+function createPlayerState(base) {
+  const form = FORMATIONS[base.formation] || FORMATIONS['4-3-3'];
+  const tac = TACTICS[base.tactic] || TACTICS.balanced;
+  return {
+    ...base,
+    x: 0, y: 0, vx: 0, vy: 0, facing: 0,
+    stamina: 100,
+    dashCd: 0, tackleCd: 0, abilityCd: 0, abilityBuffTimer: 0,
+    dashTimer: 0, pickupLock: 0,
+    formation: FORMATIONS[base.formation] ? base.formation : '4-3-3',
+    tactic: TACTICS[base.tactic] ? base.tactic : 'balanced',
+    ability: ABILITIES[base.ability] ? base.ability : 'turbo_surge',
+    attrs: {
+      pace: tac.speedMult,
+      shot: tac.shotMult,
+      staminaDrain: tac.staminaDrain,
+      attackBias: form.attackBias,
+      spreadY: form.spreadY
+    },
+    ready: false, afkWarned: false,
+    stats: { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 },
+    heatmap: []
+  };
+}
+
+function pushMatchEvent(room, text) {
+  if (!room.events) room.events = [];
+  const sec = room.startTime ? Math.max(0, Math.floor((Date.now() - room.startTime) / 1000)) : 0;
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  room.events.push({ time: `${mm}:${ss}`, text });
+  if (room.events.length > 40) room.events.shift();
+}
+
+function resetPositions(room) {
+  const ids = Object.keys(room.players);
+  const reds = ids.filter(id => room.players[id].team === 'red');
+  const blues = ids.filter(id => room.players[id].team === 'blue');
+  const bd = arenaBounds(room);
+  const swapHalves = Boolean(room.swappedHalves);
+
+  reds.forEach((id, i) => {
+    const p = room.players[id];
+    const form = FORMATIONS[p.formation] || FORMATIONS['4-3-3'];
+    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 95 * form.spreadY;
+    const xBias = form.attackBias * 140;
+    p.x = (swapHalves ? (bd.maxX - 170) : (bd.minX + 170)) + (swapHalves ? -xBias : xBias);
+    p.y = spread; p.vx = 0; p.vy = 0; p.facing = swapHalves ? Math.PI : 0;
+    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
+  });
+  blues.forEach((id, i) => {
+    const p = room.players[id];
+    const form = FORMATIONS[p.formation] || FORMATIONS['4-3-3'];
+    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 95 * form.spreadY;
+    const xBias = form.attackBias * 140;
+    p.x = (swapHalves ? (bd.minX + 170) : (bd.maxX - 170)) + (swapHalves ? xBias : -xBias);
+    p.y = spread; p.vx = 0; p.vy = 0; p.facing = swapHalves ? 0 : Math.PI;
+    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
+  });
+
+  const mkBall = (x, y) => ({
+    x, y, prevX: x, prevY: y,
+    vx: 0, vy: 0, z: 0, vz: 0,
+    curve: 0, powerGlow: 0, shotType: 'normal',
+    ownerId: null, lastTeam: null, scored: false,
+    netWave: { left: 0, right: 0 }
+  });
+
+  room.balls = [mkBall(0, 0)];
+  if (room.settings.mode === 'chaos') {
+    room.balls.push(mkBall(0, -210));
+    room.balls.push(mkBall(0, 210));
+  }
+  if (room.settings.mode === 'penalty') {
+    room.balls = [mkBall(-bd.w / 2 + 320, 0)];
+  }
+  room.lastToucher = null;
+  room.prevToucher = null;
+  room.goalLockUntil = 0;
+  room.combo = { red: 0, blue: 0 };
+}
+
+function getPlayersPublic(room) {
+  return Object.entries(room.players).map(([id, p]) => ({
+    id, accountId: p.accountId, name: p.name, color: p.color, team: p.team,
+    number: p.number, skin: p.skin, elo: p.elo || 1000, ready: Boolean(p.ready),
+    celebration: p.celebration || 'jump',
+    formation: p.formation || '4-3-3',
+    tactic: p.tactic || 'balanced',
+    ability: p.ability || 'turbo_surge',
+    stats: p.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 },
+    heatmap: (p.heatmap || []).slice(-60)
+  }));
+}
+
+function emitRoomState(room) {
+  io.to(room.id).emit('lobbyUpdate', {
+    roomId: room.id,
+    isPrivate: Boolean(room.isPrivate),
+    inviteCode: room.inviteCode || null,
+    region: room.region || 'eu',
+    players: getPlayersPublic(room),
+    host: room.host,
+    settings: room.settings
+  });
+}
+
+function recordTouch(room, playerId) {
+  if (!playerId || !room.players[playerId]) return;
+  if (room.lastToucher && room.lastToucher !== playerId) {
+    const prevP = room.players[room.lastToucher];
+    const curP = room.players[playerId];
+    if (prevP && curP && prevP.team === curP.team) {
+      room.prevToucher = room.lastToucher;
+    } else {
+      room.prevToucher = null;
+    }
+  }
+  room.lastToucher = playerId;
+}
+
+function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign = 0) {
+  b.ownerId = null;
+  b.scored = false;
+  p.pickupLock = 0.22;
+
+  const shotAttr = p.attrs?.shotMult || 1.0;
+  const buffBoost = (p.abilityBuffTimer > 0 && p.ability === 'power_cannon') ? 1.25 : 1.0;
+  const speedBonus = 1 + Math.min(0.28, Math.hypot(p.vx, p.vy) / 800);
+  const isOvercharged = kind === 'kick' && powerLevel >= 0.88;
+  const maxImp = kind === 'lob' ? LOB_MAX : (kind === 'finesse' ? FINESSE_MAX : (kind === 'kick' ? KICK_MAX : PASS_MAX));
+  const imp = maxImp * powerLevel * speedBonus * shotAttr * buffBoost * (isOvercharged ? 1.08 : 1);
+
+  let dx = Number(dirX) || 0, dy = Number(dirY) || 0;
+  if (!Number.isFinite(dx)) dx = 0;
+  if (!Number.isFinite(dy)) dy = 0;
+  const inp = room.inputs[playerId] || { x: 0, y: 0 };
+  if (Math.hypot(dx, dy) < 0.05) {
+    if (Math.hypot(inp.x, inp.y) > 0.05) { dx = inp.x; dy = inp.y; }
+    else { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
+  }
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = dx / l, ny = dy / l;
+  p.facing = Math.atan2(ny, nx);
+
+  b.prevX = b.x;
+  b.prevY = b.y;
+  b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
+  b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
+  b.vx = nx * imp;
+  b.vy = ny * imp;
+  b.vz = kind === 'lob' ? 260 * Math.max(0.5, powerLevel) : (isOvercharged ? 95 : 0);
+  b.shotType = kind;
+
+  const moveCross = nx * (inp.y || 0) - ny * (inp.x || 0);
+  const safeCurveSign = Math.max(-1, Math.min(1, Number(curveSign) || 0));
+  const effectiveCurve = safeCurveSign !== 0 ? safeCurveSign : moveCross;
+  const spin = kind === 'finesse'
+    ? (effectiveCurve !== 0 ? Math.sign(effectiveCurve) : (p.team === 'red' ? -1 : 1)) * 340 * powerLevel
+    : (kind === 'kick' ? effectiveCurve * 260 * powerLevel : (kind === 'lob' ? effectiveCurve * 140 * powerLevel : effectiveCurve * 90 * powerLevel));
+
+  b.curve = spin;
+  b.powerGlow = Math.min(1, powerLevel * speedBonus * (isOvercharged ? 1.2 : 1));
+  b.lastTeam = p.team;
+
+  if (!room.stats) room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  if (p.team === 'red' || p.team === 'blue') {
+    if (kind === 'kick' || kind === 'finesse' || kind === 'lob') {
+      room.stats.shots[p.team]++;
+      if (p.stats) p.stats.shots++;
+    }
+    if (kind === 'pass' || kind === 'lob') {
+      room.stats.passes[p.team]++;
+      if (p.stats) p.stats.passes++;
+    }
+  }
+
+  recordTouch(room, playerId);
+  io.to(room.id).emit('ballImpact', { x: b.x, y: b.y, power: powerLevel, kind, overcharged: isOvercharged });
+  if (imp > 660) {
+    io.to(room.id).emit('screenShake', { intensity: Math.min(13, (imp - 600) / 36) });
+  }
+}
+
+function resolveCircleRect(o, r, rx, ry, rw, rh, bounce) {
+  const closestX = Math.max(rx - rw / 2, Math.min(o.x, rx + rw / 2));
+  const closestY = Math.max(ry - rh / 2, Math.min(o.y, ry + rh / 2));
+  const dx = o.x - closestX, dy = o.y - closestY;
+  const d = Math.hypot(dx, dy);
+  if (d < r) {
+    const nx = d > 0.001 ? dx / d : 0;
+    const ny = d > 0.001 ? dy / d : -1;
+    o.x = closestX + nx * (r + 0.5);
+    o.y = closestY + ny * (r + 0.5);
+    const vn = o.vx * nx + o.vy * ny;
+    if (vn < 0) {
+      o.vx -= (1 + bounce) * vn * nx;
+      o.vy -= (1 + bounce) * vn * ny;
+    }
+  }
+}
+
+function resolveGoalPosts(b, minX, maxX, goalHalfH) {
+  const postR = 7;
+  const posts = [
+    [minX, -goalHalfH],
+    [minX, goalHalfH],
+    [maxX, -goalHalfH],
+    [maxX, goalHalfH]
+  ];
+  for (const [px, py] of posts) {
+    const dx = b.x - px, dy = b.y - py;
+    const d = Math.hypot(dx, dy);
+    const minDist = BALL_R + postR;
+    if (d < minDist && d > 0.0001) {
+      const nx = dx / d, ny = dy / d;
+      b.x = px + nx * (minDist + 0.5);
+      b.y = py + ny * (minDist + 0.5);
+      const vn = b.vx * nx + b.vy * ny;
+      if (vn < 0) {
+        b.vx -= (1 + 0.85) * vn * nx;
+        b.vy -= (1 + 0.85) * vn * ny;
+        b.curve *= 0.65;
+      }
+    }
+  }
+}
+
+// Goal registration strictly checks crossing goal line plane BEFORE boundary wall bounce
+function checkGoalSegment(b, minX, maxX, goalHalfH) {
+  const inZ = (b.z || 0) <= 72;
+  if (!inZ) return null;
+
+  const yTol = goalHalfH + BALL_R * 0.35;
+  const leftLine = minX;
+  const rightLine = maxX;
+
+  if (b.x <= leftLine + BALL_R * 0.25) {
+    if (b.prevX > leftLine) {
+      const dx = b.x - b.prevX;
+      const t = Math.abs(dx) > 1e-9 ? Math.max(0, Math.min(1, (leftLine - b.prevX) / dx)) : 0;
+      const crossY = b.prevY + (b.y - b.prevY) * t;
+      if (Math.abs(crossY) <= yTol) return 'blue';
+    } else if (Math.abs(b.y) <= yTol && b.x < leftLine) {
+      return 'blue';
+    }
+  }
+
+  if (b.x >= rightLine - BALL_R * 0.25) {
+    if (b.prevX < rightLine) {
+      const dx = b.x - b.prevX;
+      const t = Math.abs(dx) > 1e-9 ? Math.max(0, Math.min(1, (rightLine - b.prevX) / dx)) : 0;
+      const crossY = b.prevY + (b.y - b.prevY) * t;
+      if (Math.abs(crossY) <= yTol) return 'red';
+    } else if (Math.abs(b.y) <= yTol && b.x > rightLine) {
+      return 'red';
+    }
+  }
+  return null;
+}
+
+function checkAllPlayersReady(room) {
+  const players = Object.values(room.players);
+  const active = players.filter(p => p.team !== 'spec');
+  if (active.length < 2) return false;
+  return players.every(p => p.ready === true);
+}
+
+function triggerMatchStartSequence(room) {
+  if (room.started || room.countingDown) return;
+  if (!checkAllPlayersReady(room)) return;
+  room.countingDown = true;
+  io.to(room.id).emit('countdown', { seconds: 3 });
+
+  room.countdownTimer = setTimeout(() => {
+    room.countingDown = false;
+    if (!rooms[room.id]) return;
+    if (!checkAllPlayersReady(room)) {
+      io.to(room.id).emit('countdownCancelled', { reason: 'Один из игроков изменил ориентацию экрана' });
+      emitRoomState(room);
+      return;
+    }
+    room.started = true;
+    room.matchUid = 'OM_' + crypto.randomBytes(6).toString('hex');
+    io.to(room.id).emit('gameStarted', {
+      roomId: room.id,
+      players: getPlayersPublic(room),
+      settings: room.settings,
+      matchUid: room.matchUid
+    });
+    startRoomLoop(room.id);
+  }, 3100);
+}
+
+function startRoomLoop(roomId) {
+  const room = rooms[roomId];
+  if (!room || room.loop) return;
+  room.id = roomId;
+  room.loopRunning = true;
+  room.lastTick = Date.now();
+  room.syncTick = 0;
+  room.score = { red: 0, blue: 0 };
+  room.goalSeq = 0;
+  room.goalLockUntil = 0;
+  room.events = [];
+  room.swappedHalves = false;
+  room.halfTimeShown = false;
+  room.overtimeActive = false;
+  room.lastActiveAt = room.lastActiveAt || {};
+  room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  for (const id in room.players) {
+    room.players[id].stats = { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
+    room.players[id].stamina = 100;
+    room.players[id].abilityCd = 0;
+    room.players[id].abilityBuffTimer = 0;
+    room.players[id].heatmap = [];
+    room.players[id].afkWarned = false;
+    room.lastActiveAt[id] = Date.now();
+  }
+  room.startTime = Date.now();
+  room.mode = room.settings.mode || 'classic';
+  room.timeLeft = room.mode === 'time' ? (Number(room.settings.matchDuration) || MODES.time.duration) : 0;
+  resetPositions(room);
+  pushMatchEvent(room, 'Матч начался');
+
+  room.loop = setInterval(() => {
+    const now = Date.now();
+    let dt = (now - room.lastTick) / 1000;
+    room.lastTick = now;
+    if (dt > 0.05) dt = 0.05;
+    if (dt <= 0) return;
+
+    const bd = arenaBounds(room);
+    const iceFriction = (room.settings.arena === 'ice' || room.settings.arena === 'snow_cup') ? 0.996 : FRICTION;
+    const weatherFriction = WEATHERS[room.settings.weather] || 1;
+
+    if (room.mode === 'time') {
+      const totalDur = Number(room.settings.matchDuration) || MODES.time.duration;
+      if (!room.halfTimeShown && room.timeLeft <= totalDur * 0.5 && totalDur >= 60) {
+        room.halfTimeShown = true;
+        room.swappedHalves = !room.swappedHalves;
+        resetPositions(room);
+        pushMatchEvent(room, 'Перерыв и смена половин поля');
+        io.to(roomId).emit('halfTime', {
+          swappedHalves: room.swappedHalves,
+          red: room.score.red,
+          blue: room.score.blue,
+          stats: room.stats,
+          players: getPlayersPublic(room),
+          events: room.events
+        });
+      }
+      room.timeLeft -= dt;
+      if (room.timeLeft <= 0) {
+        if (room.score.red === room.score.blue && room.settings.allowOvertime !== false) {
+          room.overtimeActive = true;
+          room.timeLeft = 30;
+          pushMatchEvent(room, 'Дополнительное время (30с)');
+          io.to(roomId).emit('overtimeStarted', { seconds: 30 });
+        } else {
+          finishMatch(room, roomId);
+          return;
+        }
+      }
+    }
+
+    for (const id in room.players) {
+      const p = room.players[id];
+      if (p.team === 'spec') continue;
+
+      const lastAct = room.lastActiveAt[id] || now;
+      if (now - lastAct > AFK_TIMEOUT_MS && !p.afkWarned) {
+        p.afkWarned = true;
+        pushMatchEvent(room, `${p.name} отмечен как AFK`);
+        io.to(roomId).emit('afkNotice', { playerId: id, name: p.name });
+      }
+
+      const inp = room.inputs[id] || { x: 0, y: 0 };
+      const moving = Math.hypot(inp.x, inp.y) > 0.06;
+      if (moving) p.facing = Math.atan2(inp.y, inp.x);
+
+      const staminaFactor = (p.stamina ?? 100) > 12 ? 1.0 : 0.78;
+      const paceMult = (p.attrs?.pace || 1.0) * ((p.abilityBuffTimer > 0 && p.ability === 'turbo_surge') ? 1.22 : 1.0);
+      const drainMult = p.attrs?.staminaDrain || 1.0;
+
+      if ((p.dashTimer || 0) <= 0) {
+        p.vx += inp.x * PLAYER_ACCEL * paceMult * staminaFactor * dt;
+        p.vy += inp.y * PLAYER_ACCEL * paceMult * staminaFactor * dt;
+        const regen = moving ? (9 / drainMult) : 20;
+        p.stamina = Math.min(100, (p.stamina ?? 100) + regen * dt);
+      }
+
+      if (!moving && (p.dashTimer || 0) <= 0) {
+        const f = Math.pow(iceFriction * weatherFriction, dt * 60);
+        p.vx *= f; p.vy *= f;
+        if (Math.hypot(p.vx, p.vy) < 6) { p.vx = 0; p.vy = 0; }
+      } else if ((p.dashTimer || 0) <= 0) {
+        const sp = Math.hypot(p.vx, p.vy);
+        const maxSp = PLAYER_MAX * paceMult * staminaFactor;
+        if (sp > maxSp) {
+          p.vx = p.vx / sp * maxSp;
+          p.vy = p.vy / sp * maxSp;
+        }
+      }
+
+      const nextX = p.x + p.vx * dt;
+      const nextY = p.y + p.vy * dt;
+      // Anti-teleportation clamp per tick
+      const maxStep = PLAYER_MAX * 1.45 * dt + 28;
+      const stepDist = Math.hypot(nextX - p.x, nextY - p.y);
+      if (stepDist > maxStep) {
+        p.x += ((nextX - p.x) / stepDist) * maxStep;
+        p.y += ((nextY - p.y) / stepDist) * maxStep;
+      } else {
+        p.x = nextX;
+        p.y = nextY;
+      }
+
+      if (!Number.isFinite(p.x)) p.x = 0;
+      if (!Number.isFinite(p.y)) p.y = 0;
+      if (p.dashCd > 0) p.dashCd -= dt;
+      if (p.dashTimer > 0) p.dashTimer -= dt;
+      if (p.tackleCd > 0) p.tackleCd -= dt;
+      if (p.abilityCd > 0) p.abilityCd -= dt;
+      if (p.abilityBuffTimer > 0) p.abilityBuffTimer -= dt;
+      if (p.pickupLock > 0) p.pickupLock -= dt;
+    }
+
+    const activeIds = Object.keys(room.players).filter(id => room.players[id].team !== 'spec');
+
+    for (let i = 0; i < activeIds.length; i++) {
+      for (let j = i + 1; j < activeIds.length; j++) {
+        const a = room.players[activeIds[i]], c = room.players[activeIds[j]];
+        const dx = c.x - a.x, dy = c.y - a.y;
+        const d = Math.hypot(dx, dy);
+        const md = PLAYER_R * 2;
+        if (d < md && d > 0.001) {
+          const nx = dx / d, ny = dy / d, ov = md - d;
+          const aWall = (a.abilityBuffTimer > 0 && a.ability === 'iron_wall') ? 0.2 : 0.5;
+          const cWall = (c.abilityBuffTimer > 0 && c.ability === 'iron_wall') ? 0.2 : 0.5;
+          const sumW = aWall + cWall || 1;
+          a.x -= nx * ov * (cWall / sumW); a.y -= ny * ov * (cWall / sumW);
+          c.x += nx * ov * (aWall / sumW); c.y += ny * ov * (aWall / sumW);
+          const relVx = c.vx - a.vx, relVy = c.vy - a.vy;
+          const sepVel = relVx * nx + relVy * ny;
+          if (sepVel < 0) {
+            const imp = -sepVel * 0.65;
+            a.vx -= nx * imp * (cWall / sumW); a.vy -= ny * imp * (cWall / sumW);
+            c.vx += nx * imp * (aWall / sumW); c.vy += ny * imp * (aWall / sumW);
+          }
+        }
+      }
+    }
+
+    function boundRect(o, r) {
+      if (o.x < bd.minX + r) { o.x = bd.minX + r; o.vx = Math.abs(o.vx) * BOUNCE; }
+      if (o.x > bd.maxX - r) { o.x = bd.maxX - r; o.vx = -Math.abs(o.vx) * BOUNCE; }
+      if (o.y < bd.minY + r) { o.y = bd.minY + r; o.vy = Math.abs(o.vy) * BOUNCE; }
+      if (o.y > bd.maxY - r) { o.y = bd.maxY - r; o.vy = -Math.abs(o.vy) * BOUNCE; }
+      for (const [ox, oy, ow, oh] of bd.obstacles) {
+        resolveCircleRect(o, r, ox, oy, ow, oh, BOUNCE);
+      }
+    }
+    for (const id of activeIds) boundRect(room.players[id], PLAYER_R);
+
+    room.stats.totalTicks++;
+    if (room.stats.totalTicks % 15 === 0) {
+      for (const id of activeIds) {
+        const p = room.players[id];
+        if (!p.heatmap) p.heatmap = [];
+        p.heatmap.push([Math.round(p.x), Math.round(p.y)]);
+        if (p.heatmap.length > 80) p.heatmap.shift();
+      }
+    }
+    const goalHalfH = (bd.h * 0.3) / 2;
+
+    for (let bi = 0; bi < room.balls.length; bi++) {
+      const b = room.balls[bi];
+      if (b.scored) continue;
+      b.prevX = b.x;
+      b.prevY = b.y;
+
+      if (b.ownerId && room.players[b.ownerId] && room.players[b.ownerId].team !== 'spec') {
+        const owner = room.players[b.ownerId];
+        const ang = owner.facing || 0;
+        b.x = owner.x + Math.cos(ang) * DRIBBLE_DIST;
+        b.y = owner.y + Math.sin(ang) * DRIBBLE_DIST;
+        b.vx = owner.vx;
+        b.vy = owner.vy;
+        b.z = 0; b.vz = 0; b.shotType = 'normal';
+        b.curve = 0;
+        b.powerGlow = 0;
+        b.lastTeam = owner.team;
+        recordTouch(room, b.ownerId);
+        if (owner.team === 'red' || owner.team === 'blue') room.stats.possTicks[owner.team]++;
+      } else {
+        b.ownerId = null;
+        if (b.lastTeam === 'red' || b.lastTeam === 'blue') room.stats.possTicks[b.lastTeam] += 0.25;
+
+        // Magnet dribble pull for nearby player with active ability
+        for (const id of activeIds) {
+          const p = room.players[id];
+          if (p.abilityBuffTimer > 0 && p.ability === 'magnet_dribble' && p.pickupLock <= 0) {
+            const dxp = p.x - b.x, dyp = p.y - b.y, dp = Math.hypot(dxp, dyp);
+            if (dp > 1 && dp < 175) {
+              b.vx += (dxp / dp) * 520 * dt;
+              b.vy += (dyp / dp) * 520 * dt;
+            }
+          }
+        }
+
+        if (b.curve && Math.abs(b.curve) > 1) {
+          const perpX = -b.vy, perpY = b.vx;
+          const pl = Math.hypot(perpX, perpY) || 1;
+          b.vx += (perpX / pl) * b.curve * dt * 1.45;
+          b.vy += (perpY / pl) * b.curve * dt * 1.45;
+          b.curve *= Math.pow(0.89, dt * 60);
+        }
+        if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.75);
+
+        if ((b.z || 0) > 0 || (b.vz || 0) !== 0) {
+          b.vz = (b.vz || 0) - 640 * dt;
+          b.z = Math.max(0, (b.z || 0) + b.vz * dt);
+          if (b.z === 0 && b.vz < 0) {
+            b.vz = Math.abs(b.vz) * 0.45;
+            if (b.vz < 45) { b.vz = 0; b.shotType = 'normal'; }
+          }
+        }
+
+        const bf = Math.pow(iceFriction * weatherFriction * 0.992, dt * 60);
+        b.vx *= bf; b.vy *= bf;
+        b.x += b.vx * dt; b.y += b.vy * dt;
+
+        if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) {
+          b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.z = 0; b.vz = 0;
+        }
+        const maxSpeed = 1650;
+        const bsp = Math.hypot(b.vx, b.vy);
+        if (bsp > maxSpeed) { b.vx = (b.vx / bsp) * maxSpeed; b.vy = (b.vy / bsp) * maxSpeed; }
+
+        for (const [ox, oy, ow, oh] of bd.obstacles) {
+          resolveCircleRect(b, BALL_R, ox, oy, ow, oh, BOUNCE);
+        }
+
+        resolveGoalPosts(b, bd.minX, bd.maxX, goalHalfH);
+
+        const canPickup = (b.z || 0) < 22;
+        if (canPickup) {
+          for (const id of activeIds) {
+            const p = room.players[id];
+            const d = Math.hypot(b.x - p.x, b.y - p.y);
+            if (d <= PLAYER_R + BALL_R + 5) {
+              if (p.pickupLock > 0) {
+                const nx = d > 0.001 ? (b.x - p.x) / d : 1;
+                const ny = d > 0.001 ? (b.y - p.y) / d : 0;
+                b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
+                b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
+                b.vx = p.vx + nx * 160;
+                b.vy = p.vy + ny * 160;
+                b.lastTeam = p.team;
+                recordTouch(room, id);
+                break;
+              }
+              if (b.lastTeam && b.lastTeam !== p.team && Math.hypot(b.vx, b.vy) > 420 && p.stats) {
+                p.stats.saves++;
+              }
+              b.ownerId = id;
+              b.lastTeam = p.team;
+              recordTouch(room, id);
+              break;
+            }
+          }
+        }
+      }
+
+      if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
+      if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
+
+      const scoringTeam = now >= (room.goalLockUntil || 0) ? checkGoalSegment(b, bd.minX, bd.maxX, goalHalfH) : null;
+
+      if (!scoringTeam) {
+        if (b.x < bd.minX + BALL_R) { b.x = bd.minX + BALL_R; b.vx = Math.abs(b.vx) * BOUNCE; }
+        if (b.x > bd.maxX - BALL_R) { b.x = bd.maxX - BALL_R; b.vx = -Math.abs(b.vx) * BOUNCE; }
+        continue;
+      }
+
+      if (scoringTeam === 'blue') {
+        b.x = Math.max(bd.minX - GOAL_DEPTH + BALL_R, b.x);
+        b.netWave = { left: Math.min(18, Math.abs(b.vx) * 0.025 + 8), right: 0 };
+      }
+      if (scoringTeam === 'red') {
+        b.x = Math.min(bd.maxX + GOAL_DEPTH - BALL_R, b.x);
+        b.netWave = { left: 0, right: Math.min(18, Math.abs(b.vx) * 0.025 + 8) };
+      }
+
+      b.scored = true;
+      room.goalLockUntil = now + 700;
+      room.goalSeq = (room.goalSeq || 0) + 1;
+
+      const toucherId = room.lastToucher;
+      const toucher = toucherId ? room.players[toucherId] : null;
+      const isOwnGoal = Boolean(toucher && toucher.team !== scoringTeam);
+
+      let assistName = '';
+      if (!isOwnGoal && toucher && room.prevToucher && room.prevToucher !== toucherId) {
+        const assister = room.players[room.prevToucher];
+        if (assister && assister.team === scoringTeam) {
+          if (assister.stats) assister.stats.assists++;
+          assistName = assister.name;
+        }
+      }
+
+      if (toucher && toucher.stats && !isOwnGoal) toucher.stats.goals++;
+      const scorerName = toucher ? (isOwnGoal ? `${toucher.name} (Автогол)` : toucher.name) : '';
+      const celebration = toucher?.celebration || CELEBRATIONS[room.score[scoringTeam] % CELEBRATIONS.length];
+
+      room.score[scoringTeam]++;
+      room.combo[scoringTeam]++;
+      pushMatchEvent(room, `${scoringTeam === 'red' ? 'Красные' : 'Синие'} забивают (${room.score.red}:${room.score.blue})${scorerName ? ' — ' + scorerName : ''}`);
+
+      const comboLbl = room.combo[scoringTeam] >= 4 ? 'ОГОНЬ!' :
+                       room.combo[scoringTeam] === 3 ? 'ХЕТ-ТРИК!' :
+                       room.combo[scoringTeam] === 2 ? 'ДУБЛЬ!' : '';
+
+      io.to(roomId).emit('goal', {
+        goalId: `${room.matchUid}_${room.goalSeq}`,
+        team: scoringTeam,
+        red: room.score.red,
+        blue: room.score.blue,
+        scorerId: toucherId || null,
+        scorerName,
+        assistName,
+        isOwnGoal,
+        celebration,
+        netWave: b.netWave,
+        combo: comboLbl,
+        events: room.events,
+        players: getPlayersPublic(room)
+      });
+
+      const otherTeam = scoringTeam === 'red' ? 'blue' : 'red';
+      room.combo[otherTeam] = 0;
+
+      if (room.overtimeActive || room.settings.goldenGoal) {
+        finishMatch(room, roomId);
         return;
       }
-      socket = io({ transports: ['websocket', 'polling'] });
-      socket.on('connect', () => {
-        document.getElementById('uiConnStatus').textContent = 'Онлайн';
-        socket.emit('authAccount', {
-          accountId: savedAccId,
-          sessionToken,
-          nick: localStorage.getItem('bb_nick') || ''
-        }, (res) => {
-          if (res && res.ok) {
-            account = res.account;
-            if (res.sessionToken) {
-              sessionToken = res.sessionToken;
-              localStorage.setItem('bb_session_token', sessionToken);
-            }
-            syncAccountUI();
-            if (res.friendsData) renderFriendsUI(res.friendsData);
-            if (res.dailyBonus > 0) showToast(`Ежедневный бонус за вход: +${res.dailyBonus} монет!`);
-          }
+
+      const goalLimit = MODES[room.mode]?.goals || 5;
+      if (room.score[scoringTeam] >= goalLimit) { finishMatch(room, roomId); return; }
+      resetPositions(room);
+      break;
+    }
+
+    room.syncTick++;
+    const every = Math.max(1, Math.round(SERVER_TICK / SYNC_RATE));
+    if (room.syncTick >= every) {
+      room.syncTick = 0;
+      const snap = {
+        balls: room.balls.map(b => ({
+          x: b.x, y: b.y, vx: b.vx, vy: b.vy, z: b.z || 0,
+          curve: b.curve, powerGlow: b.powerGlow, ownerId: b.ownerId
+        })),
+        players: {},
+        timeLeft: room.timeLeft,
+        overtime: Boolean(room.overtimeActive),
+        events: room.events || [],
+        stats: room.stats,
+        playerStats: Object.fromEntries(activeIds.map(id => [id, room.players[id].stats]))
+      };
+      for (const id of activeIds) {
+        const p = room.players[id];
+        snap.players[id] = {
+          x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
+          stamina: p.stamina ?? 100,
+          dashCd: p.dashCd, tackleCd: p.tackleCd, abilityCd: p.abilityCd || 0, dashTimer: p.dashTimer,
+          lastSeq: room.lastSeq[id] || 0
+        };
+      }
+      io.to(roomId).volatile.emit('state', snap);
+    }
+  }, 1000 / SERVER_TICK);
+}
+
+function computeMvpPlayer(playersPublic) {
+  const active = playersPublic.filter(p => p.team !== 'spec');
+  if (!active.length) return null;
+  let best = active[0];
+  let bestScore = -1;
+  for (const p of active) {
+    const st = p.stats || {};
+    const score = (st.goals || 0) * 50 + (st.assists || 0) * 30 + (st.saves || 0) * 25 + (st.tackles || 0) * 15 + (st.passes || 0) * 4 + (st.shots || 0) * 3;
+    if (score > bestScore) { bestScore = score; best = p; }
+  }
+  return { name: best.name, team: best.team, score: bestScore };
+}
+
+function calcEloDelta(myElo, oppElo, outcome) {
+  const score = outcome === 'win' ? 1 : (outcome === 'draw' ? 0.5 : 0);
+  const expected = 1 / (1 + Math.pow(10, (oppElo - myElo) / 400));
+  return Math.round(24 * (score - expected));
+}
+
+function awardMatchRewards(acc, { outcome, goals, assists, shots, passes, matchId, oppElo = 1000 }) {
+  const claimKey = `${acc.id}:${matchId}`;
+  if (db.claimedMatchAwards[claimKey]) {
+    return { alreadyClaimed: true, earned: 0, breakdown: [], account: publicAccountPayload(acc) };
+  }
+  db.claimedMatchAwards[claimKey] = Date.now();
+
+  let earned = 0;
+  const breakdown = [];
+
+  if (outcome === 'win') {
+    earned += 120;
+    acc.wins += 1;
+    acc.daily.wins = (acc.daily.wins || 0) + 1;
+    acc.season.quests.wins = (acc.season.quests.wins || 0) + 1;
+    breakdown.push('Победа: +120');
+  } else if (outcome === 'draw') {
+    earned += 60;
+    breakdown.push('Ничья: +60');
+  } else {
+    earned += 35;
+    breakdown.push('Участие: +35');
+  }
+
+  const g = Math.max(0, Math.min(20, parseInt(goals, 10) || 0));
+  const a = Math.max(0, Math.min(20, parseInt(assists, 10) || 0));
+  const s = Math.max(0, Math.min(80, parseInt(shots, 10) || 0));
+  const ps = Math.max(0, Math.min(80, parseInt(passes, 10) || 0));
+
+  if (g > 0) {
+    const gCoins = g * 25;
+    earned += gCoins;
+    acc.goals += g;
+    acc.daily.goals = (acc.daily.goals || 0) + g;
+    acc.season.quests.goals = (acc.season.quests.goals || 0) + g;
+    breakdown.push(`Голы (${g}): +${gCoins}`);
+  }
+  if (a > 0) {
+    const aCoins = a * 18;
+    earned += aCoins;
+    acc.assists += a;
+    breakdown.push(`Ассисты (${a}): +${aCoins}`);
+  }
+
+  acc.matches += 1;
+  acc.shots += s;
+  acc.passes += ps;
+  acc.season.quests.passes = (acc.season.quests.passes || 0) + ps;
+
+  const eloDelta = calcEloDelta(acc.elo || 1000, oppElo, outcome);
+  acc.elo = Math.max(100, Math.min(3500, (acc.elo || 1000) + eloDelta));
+  if (eloDelta !== 0) breakdown.push(`ELO: ${eloDelta > 0 ? '+' : ''}${eloDelta}`);
+
+  const xpGain = (outcome === 'win' ? 130 : (outcome === 'draw' ? 75 : 50)) + g * 25 + ps * 3;
+  acc.season.xp = (acc.season.xp || 0) + xpGain;
+
+  if (!acc.daily.firstMatchDone) {
+    acc.daily.firstMatchDone = true;
+    earned += 60;
+    breakdown.push('Первый матч дня: +60');
+  }
+
+  if (!acc.daily.questClaimed && (acc.daily.goals || 0) >= 3 && (acc.daily.wins || 0) >= 1) {
+    acc.daily.questClaimed = true;
+    const qReward = acc.daily.questReward || 110;
+    earned += qReward;
+    breakdown.push(`Ежедневное задание: +${qReward}`);
+  }
+
+  acc.coins += earned;
+  scheduleSaveDB();
+  return { alreadyClaimed: false, earned, eloDelta, xpGain, breakdown, account: publicAccountPayload(acc) };
+}
+
+function finishMatch(room, roomId) {
+  if (room.loop) clearInterval(room.loop);
+  room.loop = null;
+  room.loopRunning = false;
+  room.started = false;
+  let winner = 'draw';
+  if (room.score.red > room.score.blue) winner = 'red';
+  else if (room.score.blue > room.score.red) winner = 'blue';
+
+  const allPlayers = Object.values(room.players);
+  const publicPlayers = getPlayersPublic(room);
+  const mvp = computeMvpPlayer(publicPlayers);
+
+  const rewardsBySocket = {};
+  for (const [sid, p] of Object.entries(room.players)) {
+    p.ready = false;
+    if (p.accountId && db.accounts[p.accountId]) {
+      const acc = getOrCreateAccount(p.accountId, p.name);
+      const others = allPlayers.filter(op => op.accountId && op.accountId !== p.accountId && op.team !== 'spec');
+      const avgOppElo = others.length
+        ? others.reduce((sum, op) => sum + (op.elo || 1000), 0) / others.length
+        : (acc.elo || 1000);
+
+      for (const op of others) {
+        acc.recentOpponents = (acc.recentOpponents || []).filter(item => item.id !== op.accountId);
+        acc.recentOpponents.unshift({
+          id: op.accountId,
+          nick: op.name,
+          team: op.team,
+          ts: Date.now()
         });
-      });
+      }
+      acc.recentOpponents = (acc.recentOpponents || []).slice(0, 12);
 
-      socket.on('disconnect', () => {
-        document.getElementById('uiConnStatus').textContent = 'Переподключение...';
-      });
-
-      socket.on('accountSynced', (acc) => { account = acc; syncAccountUI(); });
-      socket.on('friendsUpdate', renderFriendsUI);
-      socket.on('friendRequestReceived', (d) => showToast(`Запрос в друзья от ${d.fromNick}`));
-      socket.on('matchInviteReceived', (inv) => {
-        if (confirm(`Игрок ${inv.fromNick} приглашает вас в приватный матч (${inv.inviteCode}). Принять?`)) {
-          socket.emit('respondMatchInvite', { inviteId: inv.inviteId, accept: true });
-          document.getElementById('inpPrivCode').value = inv.inviteCode;
-          joinPrivateRoomUI();
-        }
-      });
-
-      socket.on('lobbyUpdate', (data) => {
-        currentRoom = data;
-        document.getElementById('menuOverlay').classList.add('hidden');
-        document.getElementById('lobbyOverlay').classList.remove('hidden');
-        document.getElementById('lobbyTitle').textContent = data.isPrivate
-          ? `Приватная комната • Код: ${data.inviteCode}`
-          : `Онлайн-лобби (${data.region?.toUpperCase() || 'EU'})`;
-        document.getElementById('lobbySub').textContent = `Игроков: ${data.players.length} | Формат: ${data.settings.teamSize}v${data.settings.teamSize}`;
-        document.getElementById('lobbyPlayersList').innerHTML = data.players.map(p => `
-          <div class="list-item">
-            <span><b>${p.name}</b> [ELO ${p.elo || 1000}] • ${p.formation}</span>
-            <span>
-              <span class="badge ${p.team === 'red' ? '' : 'green'}">${p.team.toUpperCase()}</span>
-              ${p.ready ? '✅' : '⏳'}
-            </span>
-          </div>
-        `).join('');
-      });
-
-      socket.on('countdown', ({ seconds }) => showBanner(`Матч через ${seconds}...`, '#facc15', 2800));
-      socket.on('countdownCancelled', ({ reason }) => showToast(reason || 'Отсчёт отменён'));
-
-      socket.on('gameStarted', (data) => {
-        gameModeType = 'online';
-        matchSettings = data.settings;
-        localPlayers = {};
-        data.players.forEach(p => { localPlayers[p.id] = { ...p, x: 0, y: 0, vx: 0, vy: 0, stamina: 100 }; });
-        document.getElementById('lobbyOverlay').classList.add('hidden');
-        document.getElementById('menuOverlay').classList.add('hidden');
-        document.getElementById('hud').classList.remove('hidden');
-        document.getElementById('touchControls').classList.remove('hidden');
-        showBanner('МАТЧ НАЧАЛСЯ!', '#4ade80', 1400);
-      });
-
-      socket.on('state', (snap) => {
-        if (gameModeType !== 'online') return;
-        localBalls = snap.balls || [];
-        timerSec = Math.max(0, Math.ceil(snap.timeLeft || 0));
-        for (const [id, st] of Object.entries(snap.players || {})) {
-          if (!localPlayers[id]) localPlayers[id] = { id, name: 'Игрок', color: '#38bdf8', team: 'blue', number: 1 };
-          Object.assign(localPlayers[id], st);
-        }
-        const me = localPlayers[socket.id];
-        if (me) {
-          document.getElementById('staminaFill').style.width = `${Math.round(me.stamina ?? 100)}%`;
-          updateCooldownBadges(me);
-        }
-      });
-
-      socket.on('goal', (g) => {
-        score.red = g.red;
-        score.blue = g.blue;
-        document.getElementById('scoreRed').textContent = score.red;
-        document.getElementById('scoreBlue').textContent = score.blue;
-        if (g.netWave) netWave = g.netWave;
-        shakePower = 14;
-        spawnGoalParticles(g.team === 'red' ? 880 : -880, 0, g.team === 'red' ? '#ef4444' : '#3b82f6');
-        showBanner(`ГОЛ! ${g.scorerName || ''}`, '#facc15', 2200);
-      });
-
-      socket.on('screenShake', ({ intensity }) => { shakePower = Math.max(shakePower, intensity || 8); });
-      socket.on('emote', ({ id, em }) => {
-        const p = localPlayers[id];
-        if (p) emotesFloating.push({ x: p.x, y: p.y - 45, em, ttl: 2.0 });
-      });
-
-      socket.on('matchEnd', (res) => {
-        const myReward = res.rewardsBySocket?.[socket.id];
-        if (myReward && myReward.account) {
-          account = myReward.account;
-          syncAccountUI();
-        }
-        const msg = res.winner === 'draw' ? 'НИЧЬЯ!' : `ПОБЕДА ${res.winner.toUpperCase()} (${res.red}:${res.blue})`;
-        showBanner(msg, '#38bdf8', 3200);
-        if (myReward && myReward.earned) {
-          showToast(`Награда: +${myReward.earned} 🪙 (${myReward.breakdown.join(', ')})`);
-        }
-        setTimeout(() => {
-          document.getElementById('hud').classList.add('hidden');
-          document.getElementById('touchControls').classList.add('hidden');
-          document.getElementById('lobbyOverlay').classList.remove('hidden');
-        }, 2800);
-      });
-
-      setInterval(() => {
-        if (socket && socket.connected) {
-          const t0 = performance.now();
-          socket.emit('pingCheck', t0, () => {
-            pingMs = Math.round(performance.now() - t0);
-            document.getElementById('hudNetInfo').textContent = `PING: ${pingMs} ms | ELO: ${account?.elo || 1000}`;
-          });
-        }
-      }, 2500);
-    }
-
-    function getPlayerPayload() {
-      const nick = document.getElementById('inpNick').value.trim() || 'Игрок';
-      localStorage.setItem('bb_nick', nick);
-      return {
-        accountId: account?.id || savedAccId,
-        sessionToken,
-        name: nick,
-        color: document.getElementById('inpColor').value,
-        number: parseInt(document.getElementById('inpNum').value, 10) || 10,
-        skin: document.getElementById('selPlayerSkin').value || 'plain',
-        ballSkin: document.getElementById('selBallSkin').value || 'classic',
-        formation: document.getElementById('selFormation').value || '4-3-3',
-        tactic: document.getElementById('selTactic').value || 'balanced',
-        ability: document.getElementById('selAbility').value || 'turbo_surge',
-        region: document.getElementById('selRegion').value || 'auto',
-        teamSize: parseInt(document.getElementById('selTeamSize').value, 10) || 2,
-        isLandscape: window.innerWidth >= window.innerHeight
-      };
-    }
-
-    function startOnlineMatchmaking() {
-      if (!socket || !socket.connected) return showToast('Нет соединения с сервером');
-      socket.emit('findMatch', getPlayerPayload(), (res) => {
-        if (!res || !res.ok) showToast(res?.error || 'Ошибка поиска матча');
+      const outcome = p.team === 'spec' ? 'draw' : (winner === 'draw' ? 'draw' : (winner === p.team ? 'win' : 'loss'));
+      rewardsBySocket[sid] = awardMatchRewards(acc, {
+        outcome,
+        goals: p.stats?.goals || 0,
+        assists: p.stats?.assists || 0,
+        shots: p.stats?.shots || 0,
+        passes: p.stats?.passes || 0,
+        oppElo: avgOppElo,
+        matchId: room.matchUid || `${roomId}_${Date.now()}`
       });
     }
+  }
 
-    function createPrivateRoomUI() {
-      if (!socket || !socket.connected) return showToast('Нет соединения с сервером');
-      const payload = getPlayerPayload();
-      payload.customRules = {
-        arena: document.getElementById('selArena').value,
-        allowOvertime: document.getElementById('chkOvertime').checked,
-        goldenGoal: document.getElementById('chkGoldenGoal').checked,
-        autoBalance: document.getElementById('chkAutoBalance').checked
-      };
-      socket.emit('createPrivateRoom', payload, (res) => {
-        if (!res || !res.ok) return showToast(res?.error || 'Ошибка создания комнаты');
-        showToast(`Комната создана! Код: ${res.inviteCode}`);
-      });
+  io.to(roomId).emit('matchEnd', {
+    matchUid: room.matchUid,
+    winner,
+    red: room.score.red,
+    blue: room.score.blue,
+    mvp,
+    events: room.events || [],
+    stats: room.stats,
+    players: publicPlayers,
+    rewardsBySocket
+  });
+}
+
+// ==== ELO & REGION-AWARE MATCHMAKING ====
+function findOpenPublicRoom(teamSize = 2, playerElo = 1000, region = 'auto') {
+  let bestRoom = null;
+  let bestScore = Infinity;
+  for (const [, room] of Object.entries(rooms)) {
+    if (room.isPrivate) continue;
+    if ((room.settings.teamSize || 2) !== teamSize) continue;
+    const activeCount = Object.values(room.players).filter(p => p.team !== 'spec').length;
+    if (!room.started && !room.countingDown && activeCount < teamSize * 2 && Object.keys(room.players).length < MAX_PLAYERS) {
+      const avgElo = activeCount > 0
+        ? Object.values(room.players).filter(p => p.team !== 'spec').reduce((s, x) => s + (x.elo || 1000), 0) / activeCount
+        : playerElo;
+      const eloDiff = Math.abs(avgElo - playerElo);
+      const regionPenalty = (region !== 'auto' && room.region && room.region !== region) ? 250 : 0;
+      const score = eloDiff + regionPenalty;
+      if (score < bestScore) { bestScore = score; bestRoom = room; }
+    }
+  }
+  return bestRoom;
+}
+
+function attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, formation, tactic, ability, isLandscape, preferredTeam = null }) {
+  leaveCurrentRoom(socket);
+  const safeSkin = acc.ownedSkins.includes(skin) ? skin : 'plain';
+  const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
+  if (room.isPrivate && !room.settings.ballSkin) room.settings.ballSkin = safeBallSkin;
+
+  const cleanName = sanitize(name || acc.nick, acc.nick);
+  acc.nick = cleanName;
+  const isFirst = Object.keys(room.players).length === 0;
+  const team = preferredTeam || (isFirst ? 'red' : assignTeams(room));
+
+  room.players[socket.id] = createPlayerState({
+    accountId: acc.id,
+    name: cleanName,
+    color: sanitizeColor(color),
+    number: sanitizeNum(number),
+    skin: safeSkin,
+    elo: acc.elo || 1000,
+    celebration: CELEBRATIONS.includes(celebration) ? celebration : 'jump',
+    formation,
+    tactic,
+    ability,
+    team
+  });
+  room.players[socket.id].ready = Boolean(isLandscape);
+  room.inputs[socket.id] = { x: 0, y: 0 };
+  room.lastActiveAt = room.lastActiveAt || {};
+  room.lastActiveAt[socket.id] = Date.now();
+  socket.join(room.id);
+  socket.roomId = room.id;
+
+  if (room.isPrivate && room.settings.autoBalance !== false) {
+    autoBalanceRoom(room);
+  }
+  emitRoomState(room);
+  pushFriendsUpdate(acc.id);
+}
+
+// ==== SOCKET EVENTS ====
+io.on('connection', (socket) => {
+  socket.on('pingCheck', (ts, cb) => { if (typeof cb === 'function') cb(ts); });
+
+  socket.on('authAccount', ({ accountId, sessionToken, nick }, cb) => {
+    const verifiedId = verifyAccountToken(sessionToken, accountId);
+    let acc;
+    if (verifiedId) {
+      acc = getOrCreateAccount(verifiedId, nick);
+    } else if (accountId && db.accounts[accountId]) {
+      // Supplied an existing accountId without a valid matching sessionToken -> issue new guest account instead of hijacking
+      const freshId = 'acc_' + crypto.randomBytes(6).toString('hex');
+      acc = getOrCreateAccount(freshId, nick);
+    } else {
+      acc = getOrCreateAccount(accountId, nick);
+    }
+    socket.accountId = acc.id;
+    const token = signAccountToken(acc.id);
+
+    let dailyBonus = 0;
+    if (!acc.daily.loginClaimed) {
+      acc.daily.loginClaimed = true;
+      dailyBonus = 35 + Math.floor(Math.random() * 75);
+      acc.daily.loginReward = dailyBonus;
+      acc.coins += dailyBonus;
+      scheduleSaveDB();
     }
 
-    function joinPrivateRoomUI() {
-      if (!socket || !socket.connected) return showToast('Нет соединения с сервером');
-      const code = document.getElementById('inpPrivCode').value.trim().toUpperCase();
-      if (!code) return showToast('Введите код комнаты');
-      const payload = getPlayerPayload();
-      payload.codeOrRoomId = code;
-      socket.emit('joinPrivateRoom', payload, (res) => {
-        if (!res || !res.ok) showToast(res?.error || 'Не удалось войти в комнату');
-      });
-    }
-
-    function leaveLobby() {
-      if (socket) socket.disconnect();
-      document.getElementById('lobbyOverlay').classList.add('hidden');
-      document.getElementById('menuOverlay').classList.remove('hidden');
-      initSocket();
-    }
-
-    function leaveMatchToMenu() {
-      gameModeType = 'none';
-      if (lanPc) { try { lanPc.close(); } catch (e) {} lanPc = null; }
-      document.getElementById('hud').classList.add('hidden');
-      document.getElementById('touchControls').classList.add('hidden');
-      document.getElementById('lobbyOverlay').classList.add('hidden');
-      document.getElementById('menuOverlay').classList.remove('hidden');
-      if (socket) { socket.disconnect(); initSocket(); }
-    }
-
-    function savePrefsUI() {
-      const prefs = {
-        formation: document.getElementById('selFormation').value,
-        tactic: document.getElementById('selTactic').value,
-        ability: document.getElementById('selAbility').value,
-        region: document.getElementById('selRegion').value
-      };
-      if (socket && socket.connected) {
-        socket.emit('savePlayerPrefs', { accountId: account?.id, sessionToken, prefs }, (res) => {
-          if (res?.ok) showToast('Тактика и способности сохранены!');
-        });
+    let rejoinInfo = null;
+    for (const [key, sess] of Object.entries(disconnectedSessions)) {
+      if (sess.accountId === acc.id && rooms[sess.roomId] && rooms[sess.roomId].started) {
+        rejoinInfo = { roomId: sess.roomId, key };
+        break;
       }
     }
 
-    function buySkinUI(category, skinId) {
-      if (!socket || !socket.connected) return;
-      socket.emit('buySkin', { accountId: account?.id, sessionToken, category, skinId }, (res) => {
-        if (!res || !res.ok) return showToast(res?.error || 'Ошибка покупки');
-        account = res.account;
-        syncAccountUI();
-        showToast('Скин успешно приобретён!');
+    if (typeof cb === 'function') {
+      cb({
+        ok: true,
+        sessionToken: token,
+        account: publicAccountPayload(acc),
+        friendsData: buildFriendsPayload(acc),
+        dailyBonus,
+        rejoinInfo
       });
     }
-
-    function claimQuestUI(key) {
-      if (!socket || !socket.connected) return;
-      socket.emit('claimSeasonReward', { accountId: account?.id, sessionToken, kind: 'quest', key }, (res) => {
-        if (!res || !res.ok) return showToast(res?.error || 'Ошибка');
-        account = res.account;
-        syncAccountUI();
-        showToast(`Награда получена: +${res.rewardCoins} 🪙!`);
-      });
+    for (const fid of (acc.friends || [])) {
+      pushFriendsUpdate(fid);
     }
+  });
 
-    function redeemPromoUI() {
-      const code = document.getElementById('inpPromo').value.trim();
-      if (!code || !socket) return;
-      socket.emit('redeemPromo', { accountId: account?.id, sessionToken, code }, (res) => {
-        if (!res || !res.ok) return showToast(res?.error || 'Неверный промокод');
-        account = res.account;
-        syncAccountUI();
-        if (res.isAdmin) {
-          document.getElementById('tabAdminBtn').classList.remove('hidden');
-          switchTab('admin');
-        }
-        showToast(res.rewardText || res.message || 'Промокод активирован!');
-      });
+  socket.on('saveCustomControls', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    if (payload.controls && typeof payload.controls === 'object') {
+      acc.customControls = payload.controls;
+      scheduleSaveDB();
     }
+    if (typeof cb === 'function') cb({ ok: true, customControls: acc.customControls });
+  });
 
-    function loadAdminDashboard() {
-      if (!socket) return;
-      socket.emit('adminGetDashboard', {}, (res) => {
-        if (!res || !res.ok) return;
-        document.getElementById('adminContent').innerHTML = `
-          <div><b>Всего аккаунтов:</b> ${res.players.length} | <b>Промокодов:</b> ${Object.keys(res.promos).length}</div>
-          <div style="margin-top:8px;"><b>Последние логи:</b></div>
-          ${res.logs.slice(0, 10).map(l => `<div class="list-item"><span>${l.ts} • ${l.action}</span><span>${JSON.stringify(l.details)}</span></div>`).join('')}
-        `;
-      });
-    }
+  socket.on('savePlayerPrefs', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const prefs = payload.prefs || {};
+    acc.playerPrefs = {
+      formation: FORMATIONS[prefs.formation] ? prefs.formation : (acc.playerPrefs?.formation || '4-3-3'),
+      tactic: TACTICS[prefs.tactic] ? prefs.tactic : (acc.playerPrefs?.tactic || 'balanced'),
+      ability: ABILITIES[prefs.ability] ? prefs.ability : (acc.playerPrefs?.ability || 'turbo_surge'),
+      region: REGIONS[prefs.region] ? prefs.region : (acc.playerPrefs?.region || 'auto')
+    };
+    scheduleSaveDB();
+    if (typeof cb === 'function') cb({ ok: true, playerPrefs: acc.playerPrefs });
+  });
 
-    function searchPlayersUI() {
-      const query = document.getElementById('inpFriendSearch').value.trim();
-      if (!socket) return;
-      socket.emit('searchPlayers', { accountId: account?.id, sessionToken, query }, (res) => {
-        if (!res || !res.ok) return;
-        document.getElementById('friendSearchResults').innerHTML = res.results.map(u => `
-          <div class="list-item">
-            <span>${u.nick} [ELO ${u.elo}]</span>
-            ${u.isFriend ? '<span class="badge green">Друг</span>' : `<button class="btn primary sm" onclick="sendFriendReqUI('${u.id}')">+ В друзья</button>`}
-          </div>
-        `).join('');
-      });
-    }
+  socket.on('listPublicRooms', (_, cb) => {
+    const list = Object.values(rooms)
+      .filter(r => !r.isPrivate)
+      .map(r => ({
+        id: r.id,
+        region: r.region || 'eu',
+        started: Boolean(r.started),
+        playersCount: Object.keys(r.players).length,
+        teamSize: r.settings.teamSize || 2,
+        mode: r.settings.mode || 'classic',
+        arena: r.settings.arena || 'classic'
+      }));
+    if (typeof cb === 'function') cb({ ok: true, rooms: list });
+  });
 
-    function sendFriendReqUI(targetId) {
-      socket.emit('sendFriendRequest', { accountId: account?.id, sessionToken, targetId }, (res) => {
-        if (res?.ok) { showToast('Заявка отправлена'); if (res.friendsData) renderFriendsUI(res.friendsData); }
-        else showToast(res?.error || 'Ошибка');
-      });
-    }
-
-    function renderFriendsUI(data) {
-      document.getElementById('friendRequestsBox').innerHTML = (data.incoming || []).map(req => `
-        <div class="list-item">
-          <span>Заявка от <b>${req.nick}</b></span>
-          <div class="row">
-            <button class="btn success sm" onclick="respFriendReq('${req.id}',true)">Принять</button>
-            <button class="btn danger sm" onclick="respFriendReq('${req.id}',false)">Отклонить</button>
-          </div>
-        </div>
-      `).join('');
-      document.getElementById('friendsListBox').innerHTML = (data.friends || []).map(f => `
-        <div class="list-item">
-          <span><b>${f.nick}</b> (${f.status})</span>
-          <button class="btn primary sm" onclick="inviteFriendUI('${f.id}')">Пригласить</button>
-        </div>
-      `).join('') || '<div style="font-size:12px;color:var(--muted);">Список друзей пуст</div>';
-    }
-
-    function respFriendReq(fromId, accept) {
-      socket.emit('respondFriendRequest', { accountId: account?.id, sessionToken, fromId, accept }, (res) => {
-        if (res?.friendsData) renderFriendsUI(res.friendsData);
-      });
-    }
-
-    function inviteFriendUI(friendId) {
-      const payload = getPlayerPayload();
-      payload.friendId = friendId;
-      socket.emit('inviteFriendToMatch', payload, (res) => {
-        if (res?.ok) showToast(`Приглашение отправлено! Код: ${res.inviteCode}`);
-        else showToast(res?.error || 'Не удалось пригласить');
-      });
-    }
-
-    // ==== OFFLINE BOT MODE & LAN P2P MODE ====
-    let localSimInterval = null;
-    let lanPc = null, lanDc = null;
-
-    function startOfflineBotMatch() {
-      gameModeType = 'offline';
-      matchSettings = { arena: document.getElementById('selArena').value || 'classic', mode: 'time', ballSkin: document.getElementById('selBallSkin').value || 'classic' };
-      score = { red: 0, blue: 0 };
-      timerSec = 120;
-      const p = getPlayerPayload();
-      localPlayers = {
-        me: { id: 'me', name: p.name, color: p.color, number: p.number, team: 'red', x: -350, y: 0, vx: 0, vy: 0, facing: 0, stamina: 100, dashCd: 0, tackleCd: 0, abilityCd: 0, ability: p.ability, tactic: p.tactic },
-        bot1: { id: 'bot1', name: 'Бот Защитник', color: '#3b82f6', number: 4, team: 'blue', x: 350, y: -90, vx: 0, vy: 0, facing: Math.PI, stamina: 100, dashCd: 0, tackleCd: 0, abilityCd: 0 },
-        bot2: { id: 'bot2', name: 'Бот Форвард', color: '#2563eb', number: 9, team: 'blue', x: 260, y: 90, vx: 0, vy: 0, facing: Math.PI, stamina: 100, dashCd: 0, tackleCd: 0, abilityCd: 0 }
-      };
-      localBalls = [{ x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, z: 0, vz: 0, curve: 0, powerGlow: 0, ownerId: null }];
-      document.getElementById('menuOverlay').classList.add('hidden');
-      document.getElementById('hud').classList.remove('hidden');
-      document.getElementById('touchControls').classList.remove('hidden');
-      document.getElementById('scoreRed').textContent = '0';
-      document.getElementById('scoreBlue').textContent = '0';
-      showBanner('ТРЕНИРОВКА С БОТАМИ!', '#4ade80', 1400);
-      runLocalPhysicsLoop(false);
-    }
-
-    // LAN WebRTC Host / Client
-    async function lanCreateHost() {
-      lanPc = new RTCPeerConnection({ iceServers: [] });
-      lanDc = lanPc.createDataChannel('ballbrawl');
-      setupLanChannel(lanDc, true);
-      const offer = await lanPc.createOffer();
-      await lanPc.setLocalDescription(offer);
-      await new Promise(r => {
-        if (lanPc.iceGatheringState === 'complete') return r();
-        lanPc.onicegatheringstatechange = () => { if (lanPc.iceGatheringState === 'complete') r(); };
-        setTimeout(r, 1200);
-      });
-      document.getElementById('lanHostPanel').classList.remove('hidden');
-      document.getElementById('lanOfferOut').value = btoa(unescape(encodeURIComponent(JSON.stringify(lanPc.localDescription))));
-    }
-
-    async function lanHostAcceptAnswer() {
-      try {
-        const raw = document.getElementById('lanAnswerIn').value.trim();
-        const desc = JSON.parse(decodeURIComponent(escape(atob(raw))));
-        await lanPc.setRemoteDescription(desc);
-        showToast('Ожидание открытия LAN-канала...');
-      } catch (e) { showToast('Некорректный код ответа'); }
-    }
-
-    async function lanJoinCreateAnswer() {
-      try {
-        const raw = document.getElementById('lanOfferIn').value.trim();
-        const offerDesc = JSON.parse(decodeURIComponent(escape(atob(raw))));
-        lanPc = new RTCPeerConnection({ iceServers: [] });
-        lanPc.ondatachannel = (ev) => { lanDc = ev.channel; setupLanChannel(lanDc, false); };
-        await lanPc.setRemoteDescription(offerDesc);
-        const answer = await lanPc.createAnswer();
-        await lanPc.setLocalDescription(answer);
-        await new Promise(r => {
-          if (lanPc.iceGatheringState === 'complete') return r();
-          lanPc.onicegatheringstatechange = () => { if (lanPc.iceGatheringState === 'complete') r(); };
-          setTimeout(r, 1200);
-        });
-        document.getElementById('lanClientPanel').classList.remove('hidden');
-        document.getElementById('lanAnswerOut').value = btoa(unescape(encodeURIComponent(JSON.stringify(lanPc.localDescription))));
-      } catch (e) { showToast('Некорректный код приглашения'); }
-    }
-
-    let remoteLanInput = { x: 0, y: 0 };
-    function setupLanChannel(dc, isHost) {
-      dc.onopen = () => {
-        showToast('LAN-соединение установлено!');
-        const p = getPlayerPayload();
-        if (isHost) {
-          gameModeType = 'lan_host';
-          matchSettings = { arena: document.getElementById('selArena').value || 'classic', mode: 'time', ballSkin: p.ballSkin };
-          score = { red: 0, blue: 0 }; timerSec = 180;
-          localPlayers = {
-            me: { id: 'me', name: p.name, color: p.color, number: p.number, team: 'red', x: -350, y: 0, vx: 0, vy: 0, facing: 0, stamina: 100 },
-            peer: { id: 'peer', name: 'LAN Игрок', color: '#3b82f6', number: 7, team: 'blue', x: 350, y: 0, vx: 0, vy: 0, facing: Math.PI, stamina: 100 }
-          };
-          localBalls = [{ x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, z: 0, vz: 0, curve: 0, powerGlow: 0, ownerId: null }];
-          document.getElementById('menuOverlay').classList.add('hidden');
-          document.getElementById('hud').classList.remove('hidden');
-          document.getElementById('touchControls').classList.remove('hidden');
-          runLocalPhysicsLoop(true);
-        } else {
-          gameModeType = 'lan_client';
-          document.getElementById('menuOverlay').classList.add('hidden');
-          document.getElementById('hud').classList.remove('hidden');
-          document.getElementById('touchControls').classList.remove('hidden');
-          dc.send(JSON.stringify({ t: 'hello', name: p.name, color: p.color, number: p.number }));
-        }
-      };
-      dc.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
-        if (isHost) {
-          if (msg.t === 'hello' && localPlayers.peer) {
-            localPlayers.peer.name = msg.name; localPlayers.peer.color = msg.color; localPlayers.peer.number = msg.number;
-          } else if (msg.t === 'inp') {
-            remoteLanInput = { x: msg.x, y: msg.y };
-          } else if (msg.t === 'act' && localPlayers.peer) {
-            executeLocalAction(localPlayers.peer, msg.type, msg.dirX, msg.dirY, msg.power, msg.curveSign);
-          }
-        } else {
-          if (msg.t === 'state') {
-            localPlayers = msg.players; localBalls = msg.balls; score = msg.score; timerSec = msg.timerSec;
-            matchSettings = msg.settings || matchSettings;
-            document.getElementById('scoreRed').textContent = score.red;
-            document.getElementById('scoreBlue').textContent = score.blue;
-          }
-        }
-      };
-    }
-
-    function executeLocalAction(p, type, dirX, dirY, power = 1, curveSign = 0) {
-      const b = localBalls[0];
-      if (!b) return;
-      if (type === 'dash' && (p.dashCd || 0) <= 0) {
-        p.dashCd = 1.7;
-        p.vx = Math.cos(p.facing || 0) * 650;
-        p.vy = Math.sin(p.facing || 0) * 650;
-      } else if (type === 'tackle' && (p.tackleCd || 0) <= 0) {
-        p.tackleCd = 1.8;
-        if (Math.hypot(b.x - p.x, b.y - p.y) < 105) { b.ownerId = p.id; }
-      } else if (['kick', 'pass', 'lob', 'finesse'].includes(type)) {
-        if (b.ownerId === p.id || Math.hypot(b.x - p.x, b.y - p.y) < 115) {
-          b.ownerId = null;
-          const imp = (type === 'kick' ? 920 : (type === 'finesse' ? 840 : (type === 'lob' ? 780 : 640))) * power;
-          const nx = Math.cos(p.facing || 0), ny = Math.sin(p.facing || 0);
-          b.vx = nx * imp; b.vy = ny * imp;
-          b.vz = type === 'lob' ? 240 : 0;
-          b.curve = type === 'finesse' ? (curveSign || 1) * 310 : (curveSign || 0) * 200;
-          b.powerGlow = power;
-        }
+  socket.on('rejoinMatch', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { isLandscape } = payload;
+    let foundKey = null;
+    let sess = null;
+    for (const [k, s] of Object.entries(disconnectedSessions)) {
+      if (s.accountId === acc.id && rooms[s.roomId]) {
+        foundKey = k;
+        sess = s;
+        break;
       }
     }
-
-    function runLocalPhysicsLoop(isLanHost) {
-      if (localSimInterval) clearInterval(localSimInterval);
-      let last = performance.now();
-      localSimInterval = setInterval(() => {
-        if (gameModeType !== 'offline' && gameModeType !== 'lan_host') {
-          clearInterval(localSimInterval); return;
-        }
-        const now = performance.now();
-        const dt = Math.min(0.05, (now - last) / 1000);
-        last = now;
-        const theme = ARENA_THEMES[matchSettings.arena] || ARENA_THEMES.classic;
-        const minX = -theme.w / 2, maxX = theme.w / 2, minY = -theme.h / 2, maxY = theme.h / 2;
-        const goalHalfH = (theme.h * 0.3) / 2;
-
-        timerSec = Math.max(0, timerSec - dt);
-        const inp = getCombinedInput();
-        const me = localPlayers.me;
-        if (me) {
-          if (Math.hypot(inp.x, inp.y) > 0.05) {
-            me.facing = Math.atan2(inp.y, inp.x);
-            me.vx = inp.x * 380; me.vy = inp.y * 380;
-          } else { me.vx *= 0.88; me.vy *= 0.88; }
-          me.x = Math.max(minX + 30, Math.min(maxX - 30, me.x + me.vx * dt));
-          me.y = Math.max(minY + 30, Math.min(maxY - 30, me.y + me.vy * dt));
-          if (me.dashCd > 0) me.dashCd -= dt;
-          if (me.tackleCd > 0) me.tackleCd -= dt;
-        }
-
-        const b = localBalls[0];
-        if (isLanHost && localPlayers.peer) {
-          const peer = localPlayers.peer;
-          if (Math.hypot(remoteLanInput.x, remoteLanInput.y) > 0.05) {
-            peer.facing = Math.atan2(remoteLanInput.y, remoteLanInput.x);
-            peer.vx = remoteLanInput.x * 380; peer.vy = remoteLanInput.y * 380;
-          } else { peer.vx *= 0.88; peer.vy *= 0.88; }
-          peer.x = Math.max(minX + 30, Math.min(maxX - 30, peer.x + peer.vx * dt));
-          peer.y = Math.max(minY + 30, Math.min(maxY - 30, peer.y + peer.vy * dt));
-        } else {
-          // Smart AI Bots
-          for (const bid of ['bot1', 'bot2']) {
-            const bot = localPlayers[bid];
-            if (!bot || !b) continue;
-            const tx = bid === 'bot1' ? Math.max(80, b.x + 120) : b.x;
-            const ty = bid === 'bot1' ? b.y * 0.65 : b.y;
-            const dx = tx - bot.x, dy = ty - bot.y, d = Math.hypot(dx, dy) || 1;
-            bot.facing = Math.atan2(dy, dx);
-            bot.x += (dx / d) * 285 * dt;
-            bot.y += (dy / d) * 285 * dt;
-            if (b.ownerId === bot.id) {
-              const gx = minX - bot.x, gy = -bot.y, gl = Math.hypot(gx, gy) || 1;
-              bot.facing = Math.atan2(gy, gx);
-              if (Math.abs(bot.x - minX) < 520) executeLocalAction(bot, 'kick', gx / gl, gy / gl, 0.85, 0);
-            }
-          }
-        }
-
-        if (b) {
-          b.prevX = b.x; b.prevY = b.y;
-          if (b.ownerId && localPlayers[b.ownerId]) {
-            const o = localPlayers[b.ownerId];
-            b.x = o.x + Math.cos(o.facing || 0) * 52;
-            b.y = o.y + Math.sin(o.facing || 0) * 52;
-            b.vx = o.vx; b.vy = o.vy;
-          } else {
-            if (b.curve) {
-              const px = -b.vy, py = b.vx, pl = Math.hypot(px, py) || 1;
-              b.vx += (px / pl) * b.curve * dt * 1.4;
-              b.vy += (py / pl) * b.curve * dt * 1.4;
-              b.curve *= 0.94;
-            }
-            b.x += b.vx * dt; b.y += b.vy * dt;
-            b.vx *= 0.975; b.vy *= 0.975;
-            if (b.z > 0 || b.vz !== 0) {
-              b.vz -= 640 * dt;
-              b.z = Math.max(0, b.z + b.vz * dt);
-              if (b.z === 0) b.vz = 0;
-            }
-            for (const p of Object.values(localPlayers)) {
-              if (Math.hypot(b.x - p.x, b.y - p.y) < 52 && (b.z || 0) < 22) {
-                b.ownerId = p.id; break;
-              }
-            }
-          }
-          if (b.y < minY + 20) { b.y = minY + 20; b.vy = Math.abs(b.vy) * 0.8; }
-          if (b.y > maxY - 20) { b.y = maxY - 20; b.vy = -Math.abs(b.vy) * 0.8; }
-
-          // Goal check BEFORE wall bounce
-          if (b.x <= minX && Math.abs(b.y) <= goalHalfH) {
-            score.blue++; document.getElementById('scoreBlue').textContent = score.blue;
-            netWave.left = 15; showBanner('ГОЛ СИНИХ!', '#3b82f6', 1600);
-            b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.ownerId = null;
-          } else if (b.x >= maxX && Math.abs(b.y) <= goalHalfH) {
-            score.red++; document.getElementById('scoreRed').textContent = score.red;
-            netWave.right = 15; showBanner('ГОЛ КРАСНЫХ!', '#ef4444', 1600);
-            b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; b.ownerId = null;
-          } else {
-            if (b.x < minX + 20) { b.x = minX + 20; b.vx = Math.abs(b.vx) * 0.8; }
-            if (b.x > maxX - 20) { b.x = maxX - 20; b.vx = -Math.abs(b.vx) * 0.8; }
-          }
-        }
-
-        if (isLanHost && lanDc && lanDc.readyState === 'open') {
-          lanDc.send(JSON.stringify({ t: 'state', players: localPlayers, balls: localBalls, score, timerSec, settings: matchSettings }));
-        }
-      }, 1000 / 60);
+    if (!sess || !rooms[sess.roomId]) {
+      return cb && cb({ ok: false, error: 'Активный матч не найден или уже завершён' });
     }
+    clearTimeout(sess.timeout);
+    delete disconnectedSessions[foundKey];
 
-    // ==== INPUTS & CUSTOMIZABLE CONTROLS ====
-    function getCombinedInput() {
-      let x = joyVec.x, y = joyVec.y;
-      if (keys['KeyW'] || keys['ArrowUp']) y -= 1;
-      if (keys['KeyS'] || keys['ArrowDown']) y += 1;
-      if (keys['KeyA'] || keys['ArrowLeft']) x -= 1;
-      if (keys['KeyD'] || keys['ArrowRight']) x += 1;
-      const l = Math.hypot(x, y);
-      if (l > 1) { x /= l; y /= l; }
-      return { x, y };
-    }
-
-    window.addEventListener('keydown', (e) => {
-      keys[e.code] = true;
-      if (e.code === 'Space') triggerAction('kick', 0.9);
-      if (e.code === 'KeyE') triggerAction('pass', 0.85);
-      if (e.code === 'KeyQ') triggerAction('lob', 0.85);
-      if (e.code === 'KeyC') triggerAction('finesse', 0.9);
-      if (e.code === 'ShiftLeft') triggerAction('dash', 1);
-      if (e.code === 'KeyF') triggerAction('tackle', 1);
-      if (e.code === 'KeyR') triggerAction('ability', 1);
+    const room = rooms[sess.roomId];
+    const snap = sess.playerSnapshot;
+    room.players[socket.id] = createPlayerState({
+      accountId: acc.id,
+      name: acc.nick,
+      color: snap.color || '#ff3366',
+      number: snap.number || 7,
+      skin: acc.ownedSkins.includes(snap.skin) ? snap.skin : 'plain',
+      elo: acc.elo || 1000,
+      celebration: snap.celebration || 'jump',
+      formation: snap.formation || '4-3-3',
+      tactic: snap.tactic || 'balanced',
+      ability: snap.ability || 'turbo_surge',
+      team: snap.team || assignTeams(room)
     });
-    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+    room.players[socket.id].x = snap.x || 0;
+    room.players[socket.id].y = snap.y || 0;
+    room.players[socket.id].stamina = snap.stamina ?? 100;
+    room.players[socket.id].stats = snap.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
+    room.players[socket.id].ready = isLandscape !== undefined ? Boolean(isLandscape) : true;
+    room.inputs[socket.id] = { x: 0, y: 0 };
+    socket.join(room.id);
+    socket.roomId = room.id;
 
-    function triggerAction(type, power = 1) {
-      const inp = getCombinedInput();
-      const me = localPlayers[socket?.id] || localPlayers.me;
-      const dirX = Math.hypot(inp.x, inp.y) > 0.05 ? inp.x : Math.cos(me?.facing || 0);
-      const dirY = Math.hypot(inp.x, inp.y) > 0.05 ? inp.y : Math.sin(me?.facing || 0);
-      const curveSign = inp.y < -0.2 ? -1 : (inp.y > 0.2 ? 1 : 0);
-
-      if (gameModeType === 'online' && socket && socket.connected) {
-        socket.emit('action', { type, dirX, dirY, power, curveSign });
-      } else if (gameModeType === 'offline' || gameModeType === 'lan_host') {
-        if (localPlayers.me) executeLocalAction(localPlayers.me, type, dirX, dirY, power, curveSign);
-      } else if (gameModeType === 'lan_client' && lanDc && lanDc.readyState === 'open') {
-        lanDc.send(JSON.stringify({ t: 'act', type, dirX, dirY, power, curveSign }));
-      }
+    emitRoomState(room);
+    pushFriendsUpdate(acc.id);
+    if (typeof cb === 'function') {
+      cb({
+        ok: true,
+        started: Boolean(room.started),
+        roomId: room.id,
+        players: getPlayersPublic(room),
+        settings: room.settings
+      });
     }
+  });
 
-    function sendEmote(em) {
-      if (socket && socket.connected) socket.emit('emote', em);
+  socket.on('findMatch', (payload = {}, cb) => {
+    if (!allowRate('find_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { name, color, number, skin, ballSkin, celebration, formation, tactic, ability, region, isLandscape, teamSize, targetRoomId } = payload;
+    const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
+    const sz = [1, 2].includes(parseInt(teamSize, 10)) ? parseInt(teamSize, 10) : 2;
+    const safeRegion = REGIONS[region] ? region : 'auto';
+
+    let room = null;
+    if (targetRoomId && rooms[targetRoomId] && !rooms[targetRoomId].isPrivate) {
+      room = rooms[targetRoomId];
+    } else {
+      room = findOpenPublicRoom(sz, acc.elo || 1000, safeRegion);
     }
-
-    setInterval(() => {
-      const inp = getCombinedInput();
-      if (gameModeType === 'online' && socket && socket.connected) {
-        socket.emit('input', { x: inp.x, y: inp.y, seq: ++inputSeq });
-      } else if (gameModeType === 'lan_client' && lanDc && lanDc.readyState === 'open') {
-        lanDc.send(JSON.stringify({ t: 'inp', x: inp.x, y: inp.y }));
-      }
-    }, 1000 / 30);
-
-    // Joystick & Action Buttons
-    (function initTouch() {
-      const zone = document.getElementById('joyZone');
-      const knob = document.getElementById('joyKnob');
-      let joyTouchId = null;
-
-      zone.addEventListener('touchstart', (e) => {
-        if (editingControls) return;
-        e.preventDefault();
-        const t = e.changedTouches[0];
-        joyTouchId = t.identifier;
-        updateJoy(t);
-      }, { passive: false });
-
-      zone.addEventListener('touchmove', (e) => {
-        if (editingControls) return;
-        e.preventDefault();
-        for (const t of e.changedTouches) {
-          if (t.identifier === joyTouchId) updateJoy(t);
-        }
-      }, { passive: false });
-
-      const endJoy = (e) => {
-        for (const t of e.changedTouches) {
-          if (t.identifier === joyTouchId) {
-            joyTouchId = null; joyVec.x = 0; joyVec.y = 0;
-            knob.style.transform = 'translate(0px, 0px)';
-          }
+    if (!room) {
+      const id = genRoomId('PUB_');
+      room = {
+        id,
+        region: safeRegion === 'auto' ? 'eu' : safeRegion,
+        isPrivate: false,
+        inviteCode: null,
+        players: {}, inputs: {}, lastSeq: {}, lastActiveAt: {},
+        lastToucher: null, prevToucher: null,
+        loop: null, loopRunning: false, host: socket.id,
+        started: false, countingDown: false, countdownTimer: null,
+        settings: {
+          arena: 'classic', mode: 'classic', matchDuration: 120,
+          weather: 'clear', ballSkin: safeBallSkin, teamSize: sz,
+          arenaColor: '#24662c', allowOvertime: true, goldenGoal: false, autoBalance: true
         }
       };
-      zone.addEventListener('touchend', endJoy);
-      zone.addEventListener('touchcancel', endJoy);
+      rooms[id] = room;
+    }
 
-      function updateJoy(t) {
-        const rect = zone.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-        const maxR = rect.width * 0.38;
-        let dx = t.clientX - cx, dy = t.clientY - cy;
-        const d = Math.hypot(dx, dy);
-        if (d > maxR) { dx = (dx / d) * maxR; dy = (dy / d) * maxR; }
-        knob.style.transform = `translate(${dx}px, ${dy}px)`;
-        joyVec.x = dx / maxR; joyVec.y = dy / maxR;
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, formation, tactic, ability, isLandscape });
+    if (typeof cb === 'function') {
+      cb({ ok: true, roomId: room.id, isPrivate: false, inviteCode: null, region: room.region, players: getPlayersPublic(room), host: room.host, settings: room.settings });
+    }
+    triggerMatchStartSequence(room);
+  });
+
+  socket.on('createPrivateRoom', (payload = {}, cb) => {
+    if (!allowRate('priv_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { name, color, number, skin, ballSkin, celebration, formation, tactic, ability, region, isLandscape, teamSize, customRules } = payload;
+    const safeBallSkin = acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic';
+    const sz = [1, 2].includes(parseInt(teamSize, 10)) ? parseInt(teamSize, 10) : 2;
+    const dur = [60, 120, 180, 300].includes(parseInt(customRules?.matchDuration, 10)) ? parseInt(customRules.matchDuration, 10) : 120;
+
+    const id = genRoomId('PRV_');
+    const code = genInviteCode();
+    const room = {
+      id,
+      region: REGIONS[region] ? region : 'eu',
+      isPrivate: true,
+      inviteCode: code,
+      allowedAccounts: new Set([acc.id]),
+      players: {}, inputs: {}, lastSeq: {}, lastActiveAt: {},
+      lastToucher: null, prevToucher: null,
+      loop: null, loopRunning: false, host: socket.id,
+      started: false, countingDown: false, countdownTimer: null,
+      settings: {
+        arena: ARENAS[customRules?.arena] ? customRules.arena : 'classic',
+        mode: MODES[customRules?.mode] ? customRules.mode : 'classic',
+        matchDuration: dur,
+        weather: WEATHERS[customRules?.weather] ? customRules.weather : 'clear',
+        ballSkin: safeBallSkin,
+        teamSize: sz,
+        arenaColor: ARENAS[customRules?.arena]?.color || '#24662c',
+        allowOvertime: customRules?.allowOvertime !== false,
+        goldenGoal: Boolean(customRules?.goldenGoal),
+        autoBalance: customRules?.autoBalance !== false,
+        abilitiesEnabled: customRules?.abilitiesEnabled !== false
       }
+    };
+    rooms[id] = room;
+    privateRooms[code] = id;
 
-      const btnMap = [
-        ['btnKick', 'kick', true],
-        ['btnPass', 'pass', false],
-        ['btnLob', 'lob', true],
-        ['btnFinesse', 'finesse', true],
-        ['btnDash', 'dash', false],
-        ['btnTackle', 'tackle', false],
-        ['btnAbility', 'ability', false]
-      ];
-      btnMap.forEach(([id, type, chargeable]) => {
-        const el = document.getElementById(id);
-        el.addEventListener('pointerdown', (e) => {
-          if (editingControls) return;
-          e.preventDefault();
-          if (chargeable) {
-            chargeState = { active: true, type, startTs: performance.now() };
-            el.classList.add('charging');
-          } else {
-            triggerAction(type, 1);
-          }
-        });
-        const release = (e) => {
-          if (editingControls) return;
-          if (chargeState.active && chargeState.type === type) {
-            const heldMs = performance.now() - chargeState.startTs;
-            const pwr = Math.max(0.35, Math.min(1, 0.35 + heldMs / 750));
-            chargeState.active = false;
-            el.classList.remove('charging');
-            triggerAction(type, pwr);
-          }
-        };
-        el.addEventListener('pointerup', release);
-        el.addEventListener('pointercancel', release);
-      });
-    })();
-
-    // Control Editor
-    function openControlEditor() {
-      editingControls = true;
-      document.getElementById('touchControls').classList.remove('hidden');
-      document.getElementById('controlEditorOverlay').classList.remove('hidden');
-      const ids = ['joyZone', 'btnKick', 'btnPass', 'btnLob', 'btnFinesse', 'btnDash', 'btnTackle', 'btnAbility'];
-      ids.forEach(id => {
-        const el = document.getElementById(id);
-        el.onpointerdown = (ev) => {
-          if (!editingControls) return;
-          ev.preventDefault();
-          const rect = el.getBoundingClientRect();
-          const offX = ev.clientX - rect.left, offY = ev.clientY - rect.top;
-          const onMove = (mv) => {
-            el.style.left = (mv.clientX - offX) + 'px';
-            el.style.top = (mv.clientY - offY) + 'px';
-            el.style.right = 'auto';
-            el.style.bottom = 'auto';
-          };
-          const onUp = () => {
-            window.removeEventListener('pointermove', onMove);
-            window.removeEventListener('pointerup', onUp);
-          };
-          window.addEventListener('pointermove', onMove);
-          window.addEventListener('pointerup', onUp);
-        };
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin: safeBallSkin, celebration, formation, tactic, ability, isLandscape, preferredTeam: 'red' });
+    if (typeof cb === 'function') {
+      cb({
+        ok: true,
+        roomId: room.id,
+        isPrivate: true,
+        inviteCode: code,
+        region: room.region,
+        players: getPlayersPublic(room),
+        host: room.host,
+        settings: room.settings
       });
     }
+  });
 
-    function previewControlScale(val) {
-      document.getElementById('ctrlScaleVal').textContent = val + '%';
-      const s = Number(val) / 100;
-      document.querySelectorAll('.act-btn').forEach(b => { b.style.transform = `scale(${s})`; });
+  socket.on('joinPrivateRoom', (payload = {}, cb) => {
+    if (!allowRate('join_priv_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { codeOrRoomId, name, color, number, skin, ballSkin, celebration, formation, tactic, ability, isLandscape } = payload;
+
+    const raw = String(codeOrRoomId || '').trim().toUpperCase();
+    const targetRoomId = privateRooms[raw] || (rooms[raw] && rooms[raw].isPrivate ? raw : null);
+    if (!targetRoomId || !rooms[targetRoomId]) {
+      return cb && cb({ ok: false, error: 'Приватная комната не найдена или код недействителен' });
+    }
+    const room = rooms[targetRoomId];
+    if (room.started) {
+      return cb && cb({ ok: false, error: 'Матч уже идёт' });
+    }
+    if (Object.keys(room.players).length >= MAX_PLAYERS) {
+      return cb && cb({ ok: false, error: 'Комната заполнена' });
     }
 
-    function saveCustomControlsUI() {
-      const ids = ['joyZone', 'btnKick', 'btnPass', 'btnLob', 'btnFinesse', 'btnDash', 'btnTackle', 'btnAbility'];
-      const layout = { scale: Number(document.getElementById('ctrlScaleRange').value) / 100, items: {} };
-      ids.forEach(id => {
-        const el = document.getElementById(id);
-        layout.items[id] = { left: el.style.left, top: el.style.top, right: el.style.right, bottom: el.style.bottom };
+    const hostPlayer = room.players[room.host];
+    const hostAccId = hostPlayer ? hostPlayer.accountId : null;
+    const hostAcc = hostAccId ? db.accounts[hostAccId] : null;
+    const isAllowed = room.allowedAccounts?.has(acc.id) ||
+                      acc.id === hostAccId ||
+                      (hostAcc && Array.isArray(hostAcc.friends) && hostAcc.friends.includes(acc.id));
+
+    if (!isAllowed) {
+      return cb && cb({ ok: false, error: 'Доступ запрещён: требуется приглашение или дружба с создателем комнаты' });
+    }
+    if (hostAcc && Array.isArray(hostAcc.blocked) && hostAcc.blocked.includes(acc.id)) {
+      return cb && cb({ ok: false, error: 'Вы заблокированы создателем комнаты' });
+    }
+
+    room.allowedAccounts.add(acc.id);
+    attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, formation, tactic, ability, isLandscape });
+    if (typeof cb === 'function') {
+      cb({
+        ok: true,
+        roomId: room.id,
+        isPrivate: true,
+        inviteCode: room.inviteCode,
+        players: getPlayersPublic(room),
+        host: room.host,
+        settings: room.settings
       });
-      customControls = layout;
-      localStorage.setItem('bb_controls', JSON.stringify(layout));
-      if (socket && socket.connected) {
-        socket.emit('saveCustomControls', { accountId: account?.id, sessionToken, controls: layout });
-      }
-      showToast('Расположение кнопок сохранено!');
-      closeControlEditor();
+    }
+    triggerMatchStartSequence(room);
+  });
+
+  // ==== FRIENDS, SEARCH, BLOCKS, REPORTS & INVITES ====
+  socket.on('searchPlayers', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const q = String(payload.query || '').trim().toLowerCase();
+    const list = Object.values(db.accounts)
+      .filter(u => u.id !== acc.id && !(acc.blocked || []).includes(u.id))
+      .filter(u => !q || u.id.toLowerCase().includes(q) || (u.nick || '').toLowerCase().includes(q))
+      .slice(0, 15)
+      .map(u => ({
+        id: u.id,
+        nick: u.nick,
+        elo: u.elo || 1000,
+        wins: u.wins,
+        goals: u.goals,
+        status: getUserStatus(u.id),
+        isFriend: (acc.friends || []).includes(u.id),
+        outgoing: (acc.friendRequestsOut || []).includes(u.id),
+        incoming: (acc.friendRequestsIn || []).includes(u.id)
+      }));
+    if (typeof cb === 'function') cb({ ok: true, results: list });
+  });
+
+  socket.on('sendFriendRequest', (payload = {}, cb) => {
+    if (!allowRate('fr_' + socket.id, 5, 8)) return cb && cb({ ok: false, error: 'Слишком много запросов' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const cleanTarget = String(payload.targetId || '').trim();
+    if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный ID игрока' });
+    const targetAcc = db.accounts[cleanTarget];
+    if (!targetAcc) return cb && cb({ ok: false, error: 'Игрок не найден' });
+    if ((acc.blocked || []).includes(cleanTarget) || (targetAcc.blocked || []).includes(acc.id)) {
+      return cb && cb({ ok: false, error: 'Добавление недоступно' });
+    }
+    if ((acc.friends || []).includes(cleanTarget)) {
+      return cb && cb({ ok: false, error: 'Уже в списке друзей' });
+    }
+    if ((acc.friendRequestsOut || []).includes(cleanTarget)) {
+      return cb && cb({ ok: false, error: 'Запрос уже отправлен' });
     }
 
-    function resetCustomControlsUI() {
-      localStorage.removeItem('bb_controls');
-      customControls = null;
-      location.reload();
+    if ((acc.friendRequestsIn || []).includes(cleanTarget)) {
+      acc.friendRequestsIn = acc.friendRequestsIn.filter(x => x !== cleanTarget);
+      targetAcc.friendRequestsOut = (targetAcc.friendRequestsOut || []).filter(x => x !== acc.id);
+      if (!acc.friends.includes(cleanTarget)) acc.friends.push(cleanTarget);
+      if (!targetAcc.friends.includes(acc.id)) targetAcc.friends.push(acc.id);
+      scheduleSaveDB();
+      pushFriendsUpdate(acc.id);
+      pushFriendsUpdate(cleanTarget);
+      return cb && cb({ ok: true, accepted: true, friendsData: buildFriendsPayload(acc) });
     }
 
-    function applyCustomControlsLayout() {
-      const saved = customControls || JSON.parse(localStorage.getItem('bb_controls') || 'null');
-      if (!saved || !saved.items) return;
-      for (const [id, pos] of Object.entries(saved.items)) {
-        const el = document.getElementById(id);
-        if (!el) continue;
-        if (pos.left) el.style.left = pos.left;
-        if (pos.top) el.style.top = pos.top;
-        if (pos.right) el.style.right = pos.right;
-        if (pos.bottom) el.style.bottom = pos.bottom;
-      }
-      if (saved.scale) previewControlScale(Math.round(saved.scale * 100));
+    acc.friendRequestsOut.push(cleanTarget);
+    if (!targetAcc.friendRequestsIn.includes(acc.id)) targetAcc.friendRequestsIn.push(acc.id);
+    scheduleSaveDB();
+    pushFriendsUpdate(acc.id);
+    pushFriendsUpdate(cleanTarget);
+    for (const s of getSocketsByAccountId(cleanTarget)) {
+      s.emit('friendRequestReceived', { fromId: acc.id, fromNick: acc.nick });
+    }
+    if (typeof cb === 'function') cb({ ok: true, friendsData: buildFriendsPayload(acc) });
+  });
+
+  socket.on('respondFriendRequest', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const cleanFrom = String(payload.fromId || '').trim();
+    const otherAcc = db.accounts[cleanFrom];
+    acc.friendRequestsIn = (acc.friendRequestsIn || []).filter(x => x !== cleanFrom);
+    if (otherAcc) {
+      otherAcc.friendRequestsOut = (otherAcc.friendRequestsOut || []).filter(x => x !== acc.id);
+    }
+    if (payload.accept && otherAcc) {
+      if (!acc.friends.includes(cleanFrom)) acc.friends.push(cleanFrom);
+      if (!otherAcc.friends.includes(acc.id)) otherAcc.friends.push(acc.id);
+    }
+    scheduleSaveDB();
+    pushFriendsUpdate(acc.id);
+    if (otherAcc) pushFriendsUpdate(cleanFrom);
+    if (typeof cb === 'function') cb({ ok: true, friendsData: buildFriendsPayload(acc) });
+  });
+
+  socket.on('removeFriend', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const cleanFriend = String(payload.friendId || '').trim();
+    acc.friends = (acc.friends || []).filter(x => x !== cleanFriend);
+    const otherAcc = db.accounts[cleanFriend];
+    if (otherAcc) {
+      otherAcc.friends = (otherAcc.friends || []).filter(x => x !== acc.id);
+    }
+    scheduleSaveDB();
+    pushFriendsUpdate(acc.id);
+    if (otherAcc) pushFriendsUpdate(cleanFriend);
+    if (typeof cb === 'function') cb({ ok: true, friendsData: buildFriendsPayload(acc) });
+  });
+
+  socket.on('blockPlayer', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const cleanTarget = String(payload.targetId || '').trim();
+    if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный ID' });
+    if (!(acc.blocked || []).includes(cleanTarget)) acc.blocked.push(cleanTarget);
+    acc.friends = (acc.friends || []).filter(x => x !== cleanTarget);
+    acc.friendRequestsIn = (acc.friendRequestsIn || []).filter(x => x !== cleanTarget);
+    acc.friendRequestsOut = (acc.friendRequestsOut || []).filter(x => x !== cleanTarget);
+    const otherAcc = db.accounts[cleanTarget];
+    if (otherAcc) otherAcc.friends = (otherAcc.friends || []).filter(x => x !== acc.id);
+    scheduleSaveDB();
+    pushFriendsUpdate(acc.id);
+    if (otherAcc) pushFriendsUpdate(cleanTarget);
+    if (typeof cb === 'function') cb({ ok: true, account: publicAccountPayload(acc), friendsData: buildFriendsPayload(acc) });
+  });
+
+  socket.on('unblockPlayer', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const cleanTarget = String(payload.targetId || '').trim();
+    acc.blocked = (acc.blocked || []).filter(x => x !== cleanTarget);
+    scheduleSaveDB();
+    if (typeof cb === 'function') cb({ ok: true, account: publicAccountPayload(acc) });
+  });
+
+  socket.on('reportPlayer', (payload = {}, cb) => {
+    if (!allowRate('rep_' + socket.id, 3, 5)) return cb && cb({ ok: false, error: 'Слишком много жалоб' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const cleanTarget = String(payload.targetId || '').trim();
+    const cleanReason = sanitize(payload.reason || 'Неспортивное поведение', 'Жалоба').slice(0, 80);
+    if (!cleanTarget || cleanTarget === acc.id) return cb && cb({ ok: false, error: 'Некорректный игрок' });
+    logAdminAction(acc.id, 'PLAYER_REPORT', { reporter: acc.nick, targetId: cleanTarget, reason: cleanReason });
+    if (typeof cb === 'function') cb({ ok: true });
+  });
+
+  socket.on('inviteFriendToMatch', (payload = {}, cb) => {
+    if (!allowRate('inv_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Слишком много приглашений' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { friendId, name, color, number, skin, ballSkin, celebration, formation, tactic, ability, isLandscape } = payload;
+    const cleanFriend = String(friendId || '').trim();
+    if (!(acc.friends || []).includes(cleanFriend)) {
+      return cb && cb({ ok: false, error: 'Игрок не в вашем списке друзей' });
+    }
+    const targetSockets = getSocketsByAccountId(cleanFriend);
+    if (!targetSockets.length) {
+      return cb && cb({ ok: false, error: 'Друг сейчас не в сети' });
     }
 
-    function closeControlEditor() {
-      editingControls = false;
-      document.getElementById('controlEditorOverlay').classList.add('hidden');
-      if (gameModeType === 'none') document.getElementById('touchControls').classList.add('hidden');
-    }
+    let room = (socket.roomId && rooms[socket.roomId] && rooms[socket.roomId].isPrivate && !rooms[socket.roomId].started)
+      ? rooms[socket.roomId]
+      : null;
 
-    function updateCooldownBadges(me) {
-      document.getElementById('btnDash').classList.toggle('cd', (me.dashCd || 0) > 0);
-      document.getElementById('btnTackle').classList.toggle('cd', (me.tackleCd || 0) > 0);
-      document.getElementById('btnAbility').classList.toggle('cd', (me.abilityCd || 0) > 0);
-    }
-
-    // ==== CANVAS RENDERER (SMOOTH CAMERA, NET WAVE, PARTICLES, NO LEG RUN ANIM) ====
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const cam = { x: 0, y: 0, zoom: 0.72 };
-
-    function resizeCanvas() {
-      canvas.width = window.innerWidth * devicePixelRatio;
-      canvas.height = window.innerHeight * devicePixelRatio;
-    }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
-
-    function spawnGoalParticles(x, y, color) {
-      for (let i = 0; i < 45; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const sp = 90 + Math.random() * 340;
-        particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, color, ttl: 0.9 + Math.random() * 0.6 });
-      }
-    }
-
-    function renderLoop() {
-      requestAnimationFrame(renderLoop);
-      const mm = String(Math.floor(timerSec / 60)).padStart(2, '0');
-      const ss = String(timerSec % 60).padStart(2, '0');
-      document.getElementById('hudTimer').textContent = `${mm}:${ss}`;
-
-      const theme = ARENA_THEMES[matchSettings.arena] || ARENA_THEMES.classic;
-      const me = localPlayers[socket?.id] || localPlayers.me || Object.values(localPlayers)[0];
-      const b0 = localBalls[0];
-      const targetX = me ? (me.x * 0.65 + (b0 ? b0.x * 0.35 : 0)) : 0;
-      const targetY = me ? (me.y * 0.65 + (b0 ? b0.y * 0.35 : 0)) : 0;
-      cam.x += (targetX - cam.x) * 0.12;
-      cam.y += (targetY - cam.y) * 0.12;
-
-      const baseZoom = Math.min(canvas.width / (theme.w * 0.72), canvas.height / (theme.h * 0.78));
-      cam.zoom += (Math.max(0.45, Math.min(1.15, baseZoom)) - cam.zoom) * 0.08;
-
-      ctx.save();
-      ctx.fillStyle = '#09111e';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      let sx = 0, sy = 0;
-      if (shakePower > 0.2) {
-        sx = (Math.random() - 0.5) * shakePower * 2;
-        sy = (Math.random() - 0.5) * shakePower * 2;
-        shakePower *= 0.88;
-      }
-
-      ctx.translate(canvas.width / 2 + sx, canvas.height / 2 + sy);
-      ctx.scale(cam.zoom, cam.zoom);
-      ctx.translate(-cam.x, -cam.y);
-
-      // Pitch stripes
-      const minX = -theme.w / 2, minY = -theme.h / 2;
-      const stripeW = theme.w / 12;
-      for (let i = 0; i < 12; i++) {
-        ctx.fillStyle = i % 2 === 0 ? theme.grass1 : theme.grass2;
-        ctx.fillRect(minX + i * stripeW, minY, stripeW + 1, theme.h);
-      }
-
-      // Field markings
-      ctx.strokeStyle = theme.line;
-      ctx.lineWidth = 4;
-      ctx.strokeRect(minX, minY, theme.w, theme.h);
-      ctx.beginPath();
-      ctx.moveTo(0, minY); ctx.lineTo(0, minY + theme.h);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(0, 0, 140, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Goals & dynamic net wave
-      const goalH = theme.h * 0.3;
-      const goalDepth = 78;
-      netWave.left *= 0.92;
-      netWave.right *= 0.92;
-
-      drawGoalNet(minX - goalDepth - netWave.left, -goalH / 2, goalDepth + netWave.left, goalH, '#ef4444');
-      drawGoalNet(minX + theme.w, -goalH / 2, goalDepth + netWave.right, goalH, '#3b82f6');
-
-      // Obstacles
-      for (const [ox, oy, ow, oh] of (theme.obstacles || [])) {
-        ctx.fillStyle = 'rgba(15,23,42,0.85)';
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 3;
-        ctx.fillRect(ox - ow / 2, oy - oh / 2, ow, oh);
-        ctx.strokeRect(ox - ow / 2, oy - oh / 2, ow, oh);
-      }
-
-      // Players (clean top-down disc + jersey number + indicator, without leg animation)
-      for (const p of Object.values(localPlayers)) {
-        if (p.team === 'spec') continue;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        // Shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.32)';
-        ctx.beginPath(); ctx.ellipse(4, 8, 30, 26, 0, 0, Math.PI * 2); ctx.fill();
-
-        // Team ring
-        ctx.strokeStyle = p.team === 'red' ? '#ef4444' : '#3b82f6';
-        ctx.lineWidth = 5;
-        ctx.beginPath(); ctx.arc(0, 0, 32, 0, Math.PI * 2); ctx.stroke();
-
-        // Body
-        ctx.fillStyle = p.color || '#ff3366';
-        ctx.beginPath(); ctx.arc(0, 0, 28, 0, Math.PI * 2); ctx.fill();
-
-        // Facing pointer
-        ctx.rotate(p.facing || 0);
-        ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.moveTo(34, 0); ctx.lineTo(24, -7); ctx.lineTo(24, 7); ctx.closePath(); ctx.fill();
-        ctx.rotate(-(p.facing || 0));
-
-        // Number & Nick
-        ctx.fillStyle = '#fff';
-        ctx.font = '800 16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(p.number ?? ''), 0, 1);
-
-        ctx.font = '700 13px sans-serif';
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillText(p.name || '', 0, -44);
-        ctx.restore();
-      }
-
-      // Balls (with altitude z shadow + power glow)
-      for (const b of localBalls) {
-        const z = b.z || 0;
-        const scale = 1 + z / 220;
-        ctx.save();
-        // Ground shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.beginPath();
-        ctx.ellipse(b.x + z * 0.25, b.y + 8 + z * 0.25, 20, 16, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.translate(b.x, b.y - z * 0.55);
-        ctx.scale(scale, scale);
-
-        if ((b.powerGlow || 0) > 0.1) {
-          ctx.shadowColor = '#facc15';
-          ctx.shadowBlur = 22 * b.powerGlow;
+    if (!room) {
+      const id = genRoomId('PRV_');
+      const code = genInviteCode();
+      room = {
+        id,
+        region: 'eu',
+        isPrivate: true,
+        inviteCode: code,
+        allowedAccounts: new Set([acc.id, cleanFriend]),
+        players: {}, inputs: {}, lastSeq: {}, lastActiveAt: {},
+        lastToucher: null, prevToucher: null,
+        loop: null, loopRunning: false, host: socket.id,
+        started: false, countingDown: false, countdownTimer: null,
+        settings: {
+          arena: 'classic', mode: 'classic', matchDuration: 120,
+          weather: 'clear', ballSkin: acc.ownedBallSkins.includes(ballSkin) ? ballSkin : 'classic',
+          teamSize: 2, arenaColor: '#24662c', allowOvertime: true, goldenGoal: false, autoBalance: true, abilitiesEnabled: true
         }
-        ctx.fillStyle = matchSettings.ballSkin === 'fire' ? '#f97316'
-          : (matchSettings.ballSkin === 'ice' ? '#38bdf8'
-          : (matchSettings.ballSkin === 'neon' ? '#a855f7'
-          : (matchSettings.ballSkin === 'star' ? '#facc15' : '#ffffff')));
-        ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 3; ctx.stroke();
-        ctx.restore();
-      }
-
-      // Particles & Emotes
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const pt = particles[i];
-        pt.x += pt.vx * 0.016; pt.y += pt.vy * 0.016; pt.ttl -= 0.016;
-        if (pt.ttl <= 0) { particles.splice(i, 1); continue; }
-        ctx.fillStyle = pt.color;
-        ctx.globalAlpha = Math.max(0, pt.ttl);
-        ctx.fillRect(pt.x - 4, pt.y - 4, 8, 8);
-        ctx.globalAlpha = 1;
-      }
-
-      for (let i = emotesFloating.length - 1; i >= 0; i--) {
-        const em = emotesFloating[i];
-        em.y -= 0.7; em.ttl -= 0.016;
-        if (em.ttl <= 0) { emotesFloating.splice(i, 1); continue; }
-        ctx.font = '28px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(em.em, em.x, em.y);
-      }
-
-      ctx.restore();
+      };
+      rooms[id] = room;
+      privateRooms[code] = id;
+      attachPlayerToRoom(socket, room, { acc, name, color, number, skin, ballSkin, celebration, formation, tactic, ability, isLandscape, preferredTeam: 'red' });
+    } else {
+      room.allowedAccounts = room.allowedAccounts || new Set([acc.id]);
+      room.allowedAccounts.add(cleanFriend);
     }
 
-    function drawGoalNet(x, y, w, h, color) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 4;
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = 1.5;
-      for (let gx = x + 16; gx < x + w; gx += 16) {
-        ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx, y + h); ctx.stroke();
-      }
-      for (let gy = y + 16; gy < y + h; gy += 16) {
-        ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x + w, gy); ctx.stroke();
-      }
-      ctx.restore();
+    const inviteId = 'INV_' + crypto.randomBytes(5).toString('hex');
+    matchInvites[inviteId] = {
+      id: inviteId,
+      fromAccountId: acc.id,
+      fromNick: acc.nick,
+      toAccountId: cleanFriend,
+      roomId: room.id,
+      inviteCode: room.inviteCode,
+      createdAt: Date.now()
+    };
+
+    for (const ts of targetSockets) {
+      ts.emit('matchInviteReceived', {
+        inviteId,
+        fromId: acc.id,
+        fromNick: acc.nick,
+        roomId: room.id,
+        inviteCode: room.inviteCode
+      });
     }
 
-    applyCustomControlsLayout();
-    initSocket();
-    renderLoop();
-  </script>
-</body>
-</html>
+    if (typeof cb === 'function') {
+      cb({
+        ok: true,
+        roomId: room.id,
+        inviteCode: room.inviteCode,
+        players: getPlayersPublic(room),
+        host: room.host,
+        settings: room.settings
+      });
+    }
+  });
+
+  socket.on('respondMatchInvite', ({ inviteId, accept }, cb) => {
+    const inv = matchInvites[inviteId];
+    if (!inv) return cb && cb({ ok: false, error: 'Приглашение устарело' });
+    delete matchInvites[inviteId];
+    const fromSockets = getSocketsByAccountId(inv.fromAccountId);
+    for (const fs of fromSockets) {
+      fs.emit('matchInviteResponse', { inviteId, accepted: Boolean(accept), byAccountId: socket.accountId });
+    }
+    if (typeof cb === 'function') cb({ ok: true, invite: inv });
+  });
+
+  socket.on('claimSeasonReward', (payload = {}, cb) => {
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { kind, key } = payload;
+    if (kind === 'tier') {
+      const tier = parseInt(key, 10);
+      const reqXp = tier * 200;
+      if (!tier || tier < 1 || tier > 10 || (acc.season.xp || 0) < reqXp) {
+        return cb && cb({ ok: false, error: 'Недостаточно сезонного опыта' });
+      }
+      if (acc.season.claimedTiers.includes(tier)) {
+        return cb && cb({ ok: false, error: 'Награда уже получена' });
+      }
+      acc.season.claimedTiers.push(tier);
+      const rewardCoins = tier * 100;
+      acc.coins += rewardCoins;
+      scheduleSaveDB();
+      return cb && cb({ ok: true, rewardCoins, account: publicAccountPayload(acc) });
+    } else if (kind === 'quest') {
+      const qKey = String(key || '');
+      const targets = { goals: 5, passes: 15, wins: 2 };
+      const rewards = { goals: 120, passes: 90, wins: 150 };
+      if (!targets[qKey]) return cb && cb({ ok: false, error: 'Задание не найдено' });
+      if (acc.season.quests.claimed[qKey]) return cb && cb({ ok: false, error: 'Задание уже выполнено' });
+      if ((acc.season.quests[qKey] || 0) < targets[qKey]) {
+        return cb && cb({ ok: false, error: 'Задание ещё не выполнено' });
+      }
+      acc.season.quests.claimed[qKey] = true;
+      const rewardCoins = rewards[qKey];
+      acc.coins += rewardCoins;
+      scheduleSaveDB();
+      return cb && cb({ ok: true, rewardCoins, account: publicAccountPayload(acc) });
+    }
+    if (cb) cb({ ok: false, error: 'Неверный запрос' });
+  });
+
+  socket.on('setOrientationReady', ({ ready }) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const room = rooms[roomId];
+    const p = room.players[socket.id];
+    if (!p) return;
+
+    const newReady = Boolean(ready);
+    if (p.ready === newReady) return;
+    p.ready = newReady;
+
+    if (!newReady && room.countingDown && !room.started) {
+      room.countingDown = false;
+      if (room.countdownTimer) {
+        clearTimeout(room.countdownTimer);
+        room.countdownTimer = null;
+      }
+      io.to(roomId).emit('countdownCancelled', { reason: `${p.name} повернул экран вертикально` });
+    }
+
+    emitRoomState(room);
+    if (newReady && !room.started) {
+      triggerMatchStartSequence(room);
+    }
+  });
+
+  socket.on('switchTeam', (targetTeam) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId] || rooms[roomId].started || rooms[roomId].countingDown) return;
+    const room = rooms[roomId];
+    const p = room.players[socket.id];
+    if (!p || !['red', 'blue', 'spec'].includes(targetTeam)) return;
+    const maxPerTeam = room.settings.teamSize || 2;
+    if (targetTeam !== 'spec') {
+      const count = Object.values(room.players).filter(x => x.team === targetTeam && x !== p).length;
+      if (count >= maxPerTeam) return;
+    }
+    p.team = targetTeam;
+    emitRoomState(room);
+    triggerMatchStartSequence(room);
+  });
+
+  socket.on('updateSettings', (settings = {}) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId] || rooms[roomId].started) return;
+    const room = rooms[roomId];
+    if (room.host !== socket.id) return;
+    if (settings.arena && ARENAS[settings.arena]) {
+      room.settings.arena = settings.arena;
+      room.settings.arenaColor = ARENAS[settings.arena].color || '#24662c';
+    }
+    if (settings.mode && MODES[settings.mode]) room.settings.mode = settings.mode;
+    if (typeof settings.allowOvertime === 'boolean') room.settings.allowOvertime = settings.allowOvertime;
+    if (typeof settings.goldenGoal === 'boolean') room.settings.goldenGoal = settings.goldenGoal;
+    if (typeof settings.autoBalance === 'boolean') room.settings.autoBalance = settings.autoBalance;
+    if (typeof settings.abilitiesEnabled === 'boolean') room.settings.abilitiesEnabled = settings.abilitiesEnabled;
+    if (settings.matchDuration) {
+      const dur = parseInt(settings.matchDuration, 10);
+      if ([60, 120, 180, 300].includes(dur)) room.settings.matchDuration = dur;
+    }
+    if (settings.teamSize) {
+      const sz = parseInt(settings.teamSize, 10);
+      if ([1, 2].includes(sz)) {
+        room.settings.teamSize = sz;
+        if (room.settings.autoBalance !== false) autoBalanceRoom(room);
+      }
+    }
+    if (settings.weather && WEATHERS[settings.weather]) room.settings.weather = settings.weather;
+    if (settings.ballSkin && BALL_SKIN_CATALOG[settings.ballSkin]) room.settings.ballSkin = settings.ballSkin;
+    if (settings.arenaColor && /^#[0-9a-fA-F]{6}$/.test(settings.arenaColor)) room.settings.arenaColor = settings.arenaColor;
+    emitRoomState(room);
+  });
+
+  socket.on('input', (data) => {
+    if (!data || typeof data !== 'object') return;
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const inp = rooms[roomId].inputs[socket.id];
+    if (!inp) return;
+    let x = Number(data.x), y = Number(data.y);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    const l = Math.hypot(x, y);
+    if (l < 0.05) { x = 0; y = 0; }
+    else {
+      if (l > 1) { x /= l; y /= l; }
+      if (rooms[roomId].lastActiveAt) rooms[roomId].lastActiveAt[socket.id] = Date.now();
+      if (rooms[roomId].players[socket.id]) rooms[roomId].players[socket.id].afkWarned = false;
+    }
+    inp.x = x; inp.y = y;
+    if (data.seq !== undefined && Number.isFinite(Number(data.seq))) {
+      rooms[roomId].lastSeq[socket.id] = Number(data.seq);
+    }
+  });
+
+  socket.on('action', (payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (!allowRate('act_' + socket.id, 14, 20)) return;
+    const { type, dirX, dirY, power, curveSign } = payload;
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const room = rooms[roomId];
+    const p = room.players[socket.id];
+    if (!p || p.team === 'spec') return;
+    if (room.lastActiveAt) room.lastActiveAt[socket.id] = Date.now();
+    p.afkWarned = false;
+
+    if (type === 'ability') {
+      if (room.settings.abilitiesEnabled === false) return;
+      if ((p.abilityCd || 0) > 0) return;
+      p.abilityCd = ABILITY_CD;
+      p.abilityBuffTimer = 2.8;
+      if (p.ability === 'turbo_surge') {
+        p.dashTimer = 0.35;
+        const fx = Math.cos(p.facing || 0), fy = Math.sin(p.facing || 0);
+        p.vx = fx * DASH_IMPULSE * 1.15;
+        p.vy = fy * DASH_IMPULSE * 1.15;
+      }
+      return;
+    }
+
+    if (type === 'dash') {
+      if (p.dashCd > 0 || (p.stamina ?? 100) < 20) return;
+      p.stamina = Math.max(0, (p.stamina ?? 100) - 24);
+      p.dashCd = DASH_CD;
+      p.dashTimer = 0.28;
+      const inp = room.inputs[socket.id] || { x: 0, y: 0 };
+      const l = Math.hypot(inp.x, inp.y);
+      const nx = l > 0.05 ? inp.x / l : Math.cos(p.facing || 0);
+      const ny = l > 0.05 ? inp.y / l : Math.sin(p.facing || 0);
+      p.vx = nx * DASH_IMPULSE;
+      p.vy = ny * DASH_IMPULSE;
+    } else if (type === 'tackle') {
+      if (p.tackleCd > 0) return;
+      p.tackleCd = TACKLE_CD;
+      if (p.stats) p.stats.tackles++;
+      const fx = Math.cos(p.facing || 0), fy = Math.sin(p.facing || 0);
+      p.vx += fx * 340; p.vy += fy * 340;
+
+      for (const b of room.balls) {
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        if (d < PLAYER_R + BALL_R + 62) {
+          if (b.ownerId && b.ownerId !== socket.id && room.players[b.ownerId]) {
+            room.players[b.ownerId].pickupLock = 0.6;
+            room.players[b.ownerId].vx *= 0.35;
+            room.players[b.ownerId].vy *= 0.35;
+          }
+          b.ownerId = socket.id;
+          b.lastTeam = p.team;
+          recordTouch(room, socket.id);
+        }
+      }
+    } else if (type === 'kick' || type === 'pass' || type === 'lob' || type === 'finesse') {
+      let bestB = null, bestD = 9999;
+      for (const b of room.balls) {
+        if (b.ownerId === socket.id) { bestB = b; break; }
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        const range = (type === 'kick' || type === 'finesse' ? 92 : 106) + PLAYER_R + BALL_R;
+        if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
+      }
+      if (!bestB) return;
+      const rawP = Number(power);
+      const powerLevel = Number.isFinite(rawP) ? Math.max(0.25, Math.min(1, rawP)) : 1;
+      applyShot(room, p, socket.id, bestB, type, dirX || 0, dirY || 0, powerLevel, Number(curveSign) || 0);
+    }
+  });
+
+  socket.on('emote', (em) => {
+    if (!allowRate('em_' + socket.id, 3, 5)) return;
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId] || !rooms[roomId].players[socket.id]) return;
+    io.to(roomId).emit('emote', { id: socket.id, em: String(em || '').slice(0, 4) });
+  });
+
+  socket.on('chat', (msg) => {
+    if (!allowRate('ch_' + socket.id, 4, 6)) return;
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const p = rooms[roomId].players[socket.id];
+    if (!p) return;
+    const cleanMsg = String(msg || '').replace(/[<>]/g, '').trim().slice(0, 100);
+    if (!cleanMsg) return;
+    io.to(roomId).emit('chat', { name: p.name, msg: cleanMsg });
+  });
+
+  socket.on('rematch', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const room = rooms[roomId];
+    emitRoomState(room);
+    triggerMatchStartSequence(room);
+  });
+
+  // ==== ECONOMY, SHOP & PROMOCODES ====
+  socket.on('buySkin', (payload = {}, cb) => {
+    if (!allowRate('shop_' + socket.id, 5, 8)) return cb && cb({ ok: false, error: 'Слишком много запросов' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { category, skinId } = payload;
+    if (category === 'player') {
+      const item = PLAYER_SKIN_CATALOG[skinId];
+      if (!item) return cb && cb({ ok: false, error: 'Скин не найден' });
+      if (acc.ownedSkins.includes(skinId)) return cb && cb({ ok: false, error: 'Уже куплено' });
+      if (acc.coins < item.price) return cb && cb({ ok: false, error: 'Недостаточно монет' });
+      acc.coins -= item.price;
+      acc.ownedSkins.push(skinId);
+      scheduleSaveDB();
+      return cb && cb({ ok: true, account: publicAccountPayload(acc) });
+    } else if (category === 'ball') {
+      const item = BALL_SKIN_CATALOG[skinId];
+      if (!item) return cb && cb({ ok: false, error: 'Скин мяча не найден' });
+      if (acc.ownedBallSkins.includes(skinId)) return cb && cb({ ok: false, error: 'Уже куплено' });
+      if (acc.coins < item.price) return cb && cb({ ok: false, error: 'Недостаточно монет' });
+      acc.coins -= item.price;
+      acc.ownedBallSkins.push(skinId);
+      scheduleSaveDB();
+      return cb && cb({ ok: true, account: publicAccountPayload(acc) });
+    }
+    if (cb) cb({ ok: false, error: 'Неверная категория' });
+  });
+
+  socket.on('claimOfflineMatch', (payload = {}, cb) => {
+    if (!allowRate('off_claim_' + socket.id, 1, 3)) return cb && cb({ ok: false, error: 'Слишком частые запросы' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const { matchId, outcome, goals, assists, shots, passes } = payload;
+    const safeMatchId = String(matchId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+    if (!safeMatchId || !safeMatchId.startsWith('OFF_')) {
+      return cb && cb({ ok: false, error: 'Некорректный ID офлайн-матча' });
+    }
+    if (db.claimedMatchAwards[`${acc.id}:${safeMatchId}`]) {
+      return cb && cb({ ok: true, alreadyClaimed: true, earned: 0, breakdown: [], account: publicAccountPayload(acc) });
+    }
+    const g = Math.max(0, Math.min(10, parseInt(goals, 10) || 0));
+    const a = Math.max(0, Math.min(10, parseInt(assists, 10) || 0));
+    const s = Math.max(0, Math.min(40, parseInt(shots, 10) || 0));
+    const ps = Math.max(0, Math.min(40, parseInt(passes, 10) || 0));
+    if (g > s || a > ps) {
+      return cb && cb({ ok: false, error: 'Несоответствие статистики ударов/пасов и голов/ассистов' });
+    }
+    const safeOutcome = ['win', 'draw', 'loss'].includes(outcome) ? outcome : 'loss';
+    const res = awardMatchRewards(acc, { outcome: safeOutcome, goals: g, assists: a, shots: s, passes: ps, matchId: safeMatchId });
+    if (cb) cb({ ok: true, ...res });
+  });
+
+  socket.on('redeemPromo', (payload = {}, cb) => {
+    if (!allowRate('promo_' + socket.id, 4, 6)) return cb && cb({ ok: false, error: 'Подождите перед следующей попыткой' });
+    const acc = resolveVerifiedAccount(socket, payload);
+    const rawCode = String(payload.code || '').trim();
+    if (!rawCode) return cb && cb({ ok: false, error: 'Введите промокод' });
+
+    if (RAW_ADMIN_SECRET) {
+      const hash = crypto.createHash('sha256').update(rawCode).digest('hex');
+      if (hash === ADMIN_SECRET_HASH) {
+        adminSessions.add(socket.id);
+        logAdminAction(acc.id, 'ADMIN_LOGIN', { nick: acc.nick, socketId: socket.id });
+        return cb && cb({
+          ok: true,
+          isAdmin: true,
+          message: 'Доступ к панели администратора открыт',
+          account: publicAccountPayload(acc)
+        });
+      }
+    }
+
+    const upperCode = rawCode.toUpperCase();
+    const promo = db.promos[upperCode];
+    if (!promo || !promo.active) {
+      return cb && cb({ ok: false, error: 'Промокод не существует или неактивен' });
+    }
+    if (acc.usedPromos.includes(upperCode)) {
+      return cb && cb({ ok: false, error: 'Вы уже активировали этот промокод' });
+    }
+    if (promo.usedCount >= promo.maxUses) {
+      return cb && cb({ ok: false, error: 'Лимит активаций промокода исчерпан' });
+    }
+
+    acc.usedPromos.push(upperCode);
+    promo.usedCount += 1;
+
+    let rewardText = '';
+    if (promo.type === 'coins') {
+      const amount = Math.max(1, parseInt(promo.value, 10) || 0);
+      acc.coins += amount;
+      rewardText = `+${amount} монет`;
+    } else if (promo.type === 'common_skin') {
+      const lockedPlayerCommon = COMMON_PLAYER_SKINS.filter(s => !acc.ownedSkins.includes(s));
+      const lockedBallCommon = COMMON_BALL_SKINS.filter(s => !acc.ownedBallSkins.includes(s));
+      if (lockedPlayerCommon.length > 0) {
+        const chosen = lockedPlayerCommon[0];
+        acc.ownedSkins.push(chosen);
+        rewardText = `Обычный скин игрока (${chosen})`;
+      } else if (lockedBallCommon.length > 0) {
+        const chosen = lockedBallCommon[0];
+        acc.ownedBallSkins.push(chosen);
+        rewardText = `Обычный скин мяча (${chosen})`;
+      } else {
+        acc.coins += 500;
+        rewardText = '+500 монет (все обычные скины уже открыты)';
+      }
+    } else if (promo.type === 'skin') {
+      const targetSkin = String(promo.value || 'star');
+      if (PLAYER_SKIN_CATALOG[targetSkin]) {
+        if (!acc.ownedSkins.includes(targetSkin)) acc.ownedSkins.push(targetSkin);
+        rewardText = `Скин игрока: ${targetSkin}`;
+      } else if (BALL_SKIN_CATALOG[targetSkin]) {
+        if (!acc.ownedBallSkins.includes(targetSkin)) acc.ownedBallSkins.push(targetSkin);
+        rewardText = `Скин мяча: ${targetSkin}`;
+      } else {
+        acc.coins += 500;
+        rewardText = '+500 монет';
+      }
+    }
+
+    scheduleSaveDB();
+    if (cb) cb({ ok: true, isAdmin: false, rewardText, account: publicAccountPayload(acc) });
+  });
+
+  // ==== ADMIN ENDPOINTS ====
+  function requireAdmin(cb) {
+    if (!adminSessions.has(socket.id)) {
+      if (typeof cb === 'function') cb({ ok: false, error: 'Доступ запрещён' });
+      return false;
+    }
+    return true;
+  }
+
+  socket.on('adminGetDashboard', (_, cb) => {
+    if (!requireAdmin(cb)) return;
+    const playersList = Object.values(db.accounts).map(a => publicAccountPayload(a));
+    if (typeof cb === 'function') {
+      cb({ ok: true, players: playersList, promos: db.promos, logs: db.adminLogs.slice(-50).reverse() });
+    }
+  });
+
+  socket.on('adminUpdatePlayer', ({ targetId, action, amount, skinCategory, skinId }, cb) => {
+    if (!requireAdmin(cb)) return;
+    const acc = db.accounts[targetId];
+    if (!acc) return cb && cb({ ok: false, error: 'Игрок не найден' });
+    const val = parseInt(amount, 10) || 0;
+
+    if (action === 'addCoins') acc.coins = Math.max(0, acc.coins + val);
+    else if (action === 'subCoins') acc.coins = Math.max(0, acc.coins - Math.abs(val));
+    else if (action === 'setCoins') acc.coins = Math.max(0, val);
+    else if (action === 'addWins') acc.wins = Math.max(0, acc.wins + val);
+    else if (action === 'setWins') acc.wins = Math.max(0, val);
+    else if (action === 'addGoals') acc.goals = Math.max(0, acc.goals + val);
+    else if (action === 'setGoals') acc.goals = Math.max(0, val);
+    else if (action === 'setMatches') acc.matches = Math.max(0, val);
+    else if (action === 'grantSkin') {
+      if (skinCategory === 'ball' && BALL_SKIN_CATALOG[skinId]) {
+        if (!acc.ownedBallSkins.includes(skinId)) acc.ownedBallSkins.push(skinId);
+      } else if (PLAYER_SKIN_CATALOG[skinId]) {
+        if (!acc.ownedSkins.includes(skinId)) acc.ownedSkins.push(skinId);
+      }
+    } else return cb && cb({ ok: false, error: 'Неизвестное действие' });
+
+    logAdminAction(socket.accountId, `PLAYER_${action.toUpperCase()}`, { targetId, nick: acc.nick, amount: val, skinCategory, skinId });
+    scheduleSaveDB();
+
+    for (const s of getSocketsByAccountId(targetId)) {
+      s.emit('accountSynced', publicAccountPayload(acc));
+    }
+    if (typeof cb === 'function') cb({ ok: true, player: publicAccountPayload(acc), logs: db.adminLogs.slice(-50).reverse() });
+  });
+
+  socket.on('adminCreatePromo', ({ code, type, value, maxUses }, cb) => {
+    if (!requireAdmin(cb)) return;
+    const cleanCode = String(code || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20);
+    if (!cleanCode) return cb && cb({ ok: false, error: 'Некорректный код' });
+    const hash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+    if (hash === ADMIN_SECRET_HASH) return cb && cb({ ok: false, error: 'Зарезервированный код' });
+
+    const limit = Math.max(1, parseInt(maxUses, 10) || 100);
+    const promoType = ['coins', 'common_skin', 'skin'].includes(type) ? type : 'coins';
+    const promoVal = promoType === 'coins' ? Math.max(1, parseInt(value, 10) || 50) : String(value || 'star');
+
+    db.promos[cleanCode] = { type: promoType, value: promoVal, maxUses: limit, usedCount: 0, active: true };
+    logAdminAction(socket.accountId, 'PROMO_CREATE', { code: cleanCode, type: promoType, value: promoVal, maxUses: limit });
+    scheduleSaveDB();
+    if (typeof cb === 'function') cb({ ok: true, promos: db.promos, logs: db.adminLogs.slice(-50).reverse() });
+  });
+
+  socket.on('adminTogglePromo', ({ code }, cb) => {
+    if (!requireAdmin(cb)) return;
+    const promo = db.promos[code];
+    if (!promo) return cb && cb({ ok: false, error: 'Промокод не найден' });
+    promo.active = !promo.active;
+    logAdminAction(socket.accountId, 'PROMO_TOGGLE', { code, active: promo.active });
+    scheduleSaveDB();
+    if (typeof cb === 'function') cb({ ok: true, promos: db.promos, logs: db.adminLogs.slice(-50).reverse() });
+  });
+
+  socket.on('disconnect', () => {
+    adminSessions.delete(socket.id);
+    rateBuckets.delete('find_' + socket.id);
+    rateBuckets.delete('priv_' + socket.id);
+    rateBuckets.delete('join_priv_' + socket.id);
+    rateBuckets.delete('fr_' + socket.id);
+    rateBuckets.delete('rep_' + socket.id);
+    rateBuckets.delete('inv_' + socket.id);
+    rateBuckets.delete('act_' + socket.id);
+    rateBuckets.delete('em_' + socket.id);
+    rateBuckets.delete('ch_' + socket.id);
+    rateBuckets.delete('shop_' + socket.id);
+    rateBuckets.delete('promo_' + socket.id);
+    rateBuckets.delete('off_claim_' + socket.id);
+
+    const accId = socket.accountId;
+    leaveCurrentRoom(socket);
+
+    if (accId && db.accounts[accId]) {
+      const acc = db.accounts[accId];
+      acc.lastSeen = Date.now();
+      for (const fid of (acc.friends || [])) {
+        pushFriendsUpdate(fid);
+      }
+    }
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log('Ball Brawl Pro on port ' + PORT));
