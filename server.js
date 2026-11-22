@@ -9,8 +9,7 @@ const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingI
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PLAYER_R = 30, BALL_R = 20;
-const PLAYER_MAX = 390, DASH_IMPULSE = 660;
-const PLAYER_ACCEL = 1350;
+const PLAYER_MAX = 390, DASH_IMPULSE = 660, PLAYER_ACCEL = 1350;
 const FRICTION = 0.965, BOUNCE = 0.78;
 const KICK_MAX = 980, PASS_MAX = 660, LOB_MAX = 820, FINESSE_MAX = 860;
 const DASH_CD = 1.7, TACKLE_CD = 1.8;
@@ -150,42 +149,8 @@ function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign
     if (Math.hypot(inp.x, inp.y) > 0.1) { dx = inp.x; dy = inp.y; }
     else { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
   }
-  let l = Math.hypot(dx, dy) || 1;
-  let nx = dx / l, ny = dy / l;
-
-  // Smart pass assist toward best open teammate in aim cone
-  if (kind === 'pass' || kind === 'lob') {
-    let bestMate = null, bestScore = 0.55;
-    for (const [tid, tp] of Object.entries(room.players)) {
-      if (tid === playerId || !tp || tp.team !== p.team || tp.team === 'spec') continue;
-      const mdx = tp.x - b.x, mdy = tp.y - b.y, mdist = Math.hypot(mdx, mdy);
-      if (mdist > 80 && mdist < 950) {
-        const dot = (mdx / mdist) * nx + (mdy / mdist) * ny;
-        if (dot > bestScore) { bestScore = dot; bestMate = { dx: mdx, dy: mdy, dist: mdist }; }
-      }
-    }
-    if (bestMate) {
-      const lead = Math.min(0.22, bestMate.dist / 3600);
-      const tx = bestMate.dx + (room.inputs[Object.keys(room.players).find(k => room.players[k].x === bestMate.dx + b.x)]?.x || 0) * 180 * lead;
-      const ty = bestMate.dy;
-      const tl = Math.hypot(tx, ty) || 1;
-      nx = tx / tl; ny = ty / tl;
-    }
-  }
-
-  // Distance-aware accuracy & power dispersion
-  const bd = arenaBounds(room);
-  const targetGoalX = p.team === 'red' ? bd.maxX : bd.minX;
-  const distToGoal = Math.abs(targetGoalX - b.x);
-  const distFactor = Math.min(1, distToGoal / (bd.w * 0.85));
-  const spreadBase = kind === 'kick' ? (0.012 + distFactor * 0.048) * (1 - powerLevel * 0.35) :
-                     kind === 'finesse' ? (0.008 + distFactor * 0.025) :
-                     kind === 'lob' ? (0.02 + distFactor * 0.04) : 0.015;
-  const jitterAngle = (Math.random() - 0.5) * 2 * spreadBase;
-  const cosJ = Math.cos(jitterAngle), sinJ = Math.sin(jitterAngle);
-  const jx = nx * cosJ - ny * sinJ;
-  const jy = nx * sinJ + ny * cosJ;
-  nx = jx; ny = jy;
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = dx / l, ny = dy / l;
 
   b.prevX = b.x;
   b.prevY = b.y;
@@ -223,20 +188,6 @@ function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign
   if (imp > 660) {
     io.to(room.code).emit('screenShake', { intensity: Math.min(13, (imp - 600) / 36) });
   }
-}
-
-
-function segmentCrossesGoalLine(x1, y1, x2, y2, lineX, goalHalfH) {
-  const dx = x2 - x1;
-  if (Math.abs(dx) < 1e-6) {
-    return Math.abs(x2 - lineX) <= BALL_R * 0.4 && Math.abs(y2) <= goalHalfH + BALL_R * 0.25;
-  }
-  const t = (lineX - x1) / dx;
-  if (t >= 0 && t <= 1) {
-    const yAtLine = y1 + (y2 - y1) * t;
-    if (Math.abs(yAtLine) <= goalHalfH + BALL_R * 0.25) return true;
-  }
-  return false;
 }
 
 function resolveCircleRect(o, r, rx, ry, rw, rh, bounce) {
@@ -434,16 +385,10 @@ function startRoomLoop(code) {
       if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
       if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
 
-      const inGoalZ = (b.z || 0) <= 72;
-      const crossedLeft = inGoalZ && (
-        segmentCrossesGoalLine(b.prevX, b.prevY, b.x, b.y, bd.minX, goalHalfH) ||
-        (b.x < bd.minX - BALL_R * 0.35 && Math.abs(b.y) <= goalHalfH + BALL_R * 0.25)
-      );
-      const crossedRight = inGoalZ && (
-        segmentCrossesGoalLine(b.prevX, b.prevY, b.x, b.y, bd.maxX, goalHalfH) ||
-        (b.x > bd.maxX + BALL_R * 0.35 && Math.abs(b.y) <= goalHalfH + BALL_R * 0.25)
-      );
-      const inGoalY = true;
+      const crossedLeft = (b.prevX >= bd.minX && b.x <= bd.minX + BALL_R * 0.35) || b.x < bd.minX - BALL_R * 0.4;
+      const crossedRight = (b.prevX <= bd.maxX && b.x >= bd.maxX - BALL_R * 0.35) || b.x > bd.maxX + BALL_R * 0.4;
+      const inGoalY = Math.abs(b.y) <= goalHalfH + BALL_R * 0.25;
+      const inGoalZ = (b.z || 0) <= 68;
 
       const isGoalLeft = crossedLeft && inGoalY && inGoalZ;
       const isGoalRight = crossedRight && inGoalY && inGoalZ;
