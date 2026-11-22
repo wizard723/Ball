@@ -1,655 +1,713 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
-const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
+const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingInterval: 10000 });
+app.use(express.static(path.join(__dirname, 'public')));
 
-const PORT = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, 'database.json');
+const PLAYER_R = 30, BALL_R = 20;
+const PLAYER_MAX = 390, DASH_IMPULSE = 660;
+const PLAYER_ACCEL = 1350;
+const FRICTION = 0.965, BOUNCE = 0.78;
+const KICK_MAX = 980, PASS_MAX = 660, LOB_MAX = 820, FINESSE_MAX = 860;
+const DASH_CD = 1.7, TACKLE_CD = 1.8;
+const DRIBBLE_DIST = PLAYER_R + BALL_R + 3;
+const SERVER_TICK = 60, SYNC_RATE = 30, MAX_PLAYERS = 6;
 
-// Секретный админ-код проверяется исключительно на сервере
-const ADMIN_SECRET_HASH = crypto.createHash('sha256').update('Srm7vAd').digest('hex');
+const ARENAS = {
+  classic:   { w: 1800, h: 1100, obstacles: [] },
+  ice:       { w: 1800, h: 1100, obstacles: [] },
+  obstacles: { w: 1900, h: 1200, obstacles: [[-300, -200, 100, 60], [300, 200, 100, 60], [0, 0, 80, 80]] },
+  narrow:    { w: 2400, h: 800, obstacles: [] }
+};
+const MODES = {
+  classic: { goals: 5 },
+  time:    { duration: 120 },
+  golden:  { goals: 1 },
+  chaos:   { goals: 5 },
+  penalty: { goals: 5 }
+};
+const WEATHERS = { clear: 1, rain: 0.94, night: 1, fog: 1 };
+const CELEBRATIONS = ['slide', 'spin', 'jump', 'flex'];
 
-const SKINS = [
-    { id: 'default_blue', name: 'Классика', rarity: 'common', price: 0, color: '#3b82f6' },
-    { id: 'common_red', name: 'Алый вихрь', rarity: 'common', price: 500, color: '#ef4444' },
-    { id: 'common_green', name: 'Изумруд', rarity: 'common', price: 500, color: '#10b981' },
-    { id: 'rare_gold', name: 'Золотой удар', rarity: 'rare', price: 1000, color: '#f59e0b' },
-    { id: 'rare_cyan', name: 'Крио', rarity: 'rare', price: 1000, color: '#06b6d4' },
-    { id: 'epic_neon', name: 'Неон', rarity: 'epic', price: 2000, color: '#a855f7' },
-    { id: 'leg_dragon', name: 'Дракон', rarity: 'legendary', price: 4000, color: '#f43f5e' }
-];
+const rooms = {};
 
-function loadDB() {
-    if (fs.existsSync(DB_FILE)) {
-        try {
-            return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        } catch (e) {}
+function genCode() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 5; i++) s += c[Math.floor(Math.random() * c.length)];
+  return rooms[s] ? genCode() : s;
+}
+function sanitize(s, d = 'Игрок') { return String(s || d).replace(/[<>]/g, '').slice(0, 14); }
+function sanitizeNum(n) { const v = parseInt(n, 10); return isNaN(v) ? 0 : Math.max(0, Math.min(99, v)); }
+function sanitizeColor(c) { return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#ff3366'; }
+
+function assignTeams(room) {
+  const players = Object.values(room.players);
+  const r = players.filter(p => p.team === 'red').length;
+  const b = players.filter(p => p.team === 'blue').length;
+  if (r + b >= 4) return 'spec';
+  return r <= b ? 'red' : 'blue';
+}
+
+function arenaBounds(room) {
+  const a = ARENAS[room.settings.arena] || ARENAS.classic;
+  return {
+    minX: -a.w / 2, maxX: a.w / 2,
+    minY: -a.h / 2, maxY: a.h / 2,
+    w: a.w, h: a.h,
+    obstacles: a.obstacles || []
+  };
+}
+
+function createPlayerState(base) {
+  return {
+    ...base,
+    x: 0, y: 0, vx: 0, vy: 0, facing: 0,
+    stamina: 100,
+    dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0,
+    stats: { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 }
+  };
+}
+
+function resetPositions(room) {
+  const ids = Object.keys(room.players);
+  const reds = ids.filter(id => room.players[id].team === 'red');
+  const blues = ids.filter(id => room.players[id].team === 'blue');
+  const bd = arenaBounds(room);
+
+  reds.forEach((id, i) => {
+    const p = room.players[id];
+    const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 90;
+    p.x = bd.minX + 160; p.y = spread; p.vx = 0; p.vy = 0; p.facing = 0;
+    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
+  });
+  blues.forEach((id, i) => {
+    const p = room.players[id];
+    const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 90;
+    p.x = bd.maxX - 160; p.y = spread; p.vx = 0; p.vy = 0; p.facing = Math.PI;
+    p.pickupLock = 0; p.dashTimer = 0; p.stamina = Math.max(p.stamina || 100, 65);
+  });
+
+  const mkBall = (x, y) => ({
+    x, y, prevX: x, prevY: y,
+    vx: 0, vy: 0, z: 0, vz: 0,
+    curve: 0, powerGlow: 0, shotType: 'normal',
+    ownerId: null, lastTeam: null, scored: false
+  });
+
+  room.balls = [mkBall(0, 0)];
+  if (room.settings.mode === 'chaos') {
+    room.balls.push(mkBall(0, -210));
+    room.balls.push(mkBall(0, 210));
+  }
+  if (room.settings.mode === 'penalty') {
+    room.balls = [mkBall(-bd.w / 2 + 320, 0)];
+  }
+  room.lastToucher = null;
+  room.prevToucher = null;
+  room.combo = { red: 0, blue: 0 };
+}
+
+function getPlayersPublic(room) {
+  return Object.entries(room.players).map(([id, p]) => ({
+    id, name: p.name, color: p.color, team: p.team, number: p.number, skin: p.skin,
+    celebration: p.celebration || 'jump',
+    stats: p.stats || { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 }
+  }));
+}
+
+function recordTouch(room, playerId) {
+  if (!playerId || !room.players[playerId]) return;
+  if (room.lastToucher && room.lastToucher !== playerId) {
+    const prevP = room.players[room.lastToucher];
+    const curP = room.players[playerId];
+    if (prevP && curP && prevP.team === curP.team) {
+      room.prevToucher = room.lastToucher;
+    } else {
+      room.prevToucher = null;
     }
-    return {
-        users: {},
-        promos: {
-            'BALL2026': { type: 'coins', value: 50, maxUses: 999999, usedBy: [] },
-            'WELCOME': { type: 'coins', value: 30, maxUses: 999999, usedBy: [] },
-            'GOALMASTER': { type: 'coins', value: 75, maxUses: 999999, usedBy: [] },
-            'FOOTBALL': { type: 'coins', value: 100, maxUses: 999999, usedBy: [] },
-            'FREESKIN': { type: 'skin', value: 1, maxUses: 999999, usedBy: [] }
-        },
-        claimedMatches: {},
-        adminLogs: []
-    };
+  }
+  room.lastToucher = playerId;
 }
 
-const db = loadDB();
-function saveDB() {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
-}
+function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel, curveSign = 0) {
+  b.ownerId = null;
+  b.scored = false;
+  p.pickupLock = 0.22;
 
-function logAdmin(actor, action) {
-    db.adminLogs.unshift({
-        time: new Date().toISOString().replace('T', ' ').slice(0, 19),
-        actor,
-        action
-    });
-    if (db.adminLogs.length > 100) db.adminLogs.pop();
-    saveDB();
-}
+  const speedBonus = 1 + Math.min(0.28, Math.hypot(p.vx, p.vy) / 800);
+  const isOvercharged = kind === 'kick' && powerLevel >= 0.88;
+  const maxImp = kind === 'lob' ? LOB_MAX : (kind === 'finesse' ? FINESSE_MAX : (kind === 'kick' ? KICK_MAX : PASS_MAX));
+  const imp = maxImp * powerLevel * speedBonus * (isOvercharged ? 1.08 : 1);
 
-function getOrCreateUser(token) {
-    if (!db.users[token]) {
-        const id = 'P' + Math.floor(100000 + Math.random() * 900000);
-        db.users[token] = {
-            token,
-            id,
-            nickname: 'Игрок_' + id.slice(-4),
-            coins: 100,
-            isAdmin: false,
-            ownedSkins: ['default_blue'],
-            equippedSkin: 'default_blue',
-            stats: { matches: 0, wins: 0, draws: 0, losses: 0, goals: 0, assists: 0 },
-            dailyLoginDate: null,
-            firstMatchDate: null,
-            dailyQuest: { date: new Date().toISOString().slice(0, 10), progress: 0, target: 3, claimed: false }
-        };
-        saveDB();
+  let dx = dirX, dy = dirY;
+  const inp = room.inputs[playerId] || { x: 0, y: 0 };
+  if (Math.hypot(dx, dy) < 0.1) {
+    if (Math.hypot(inp.x, inp.y) > 0.1) { dx = inp.x; dy = inp.y; }
+    else { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
+  }
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = dx / l, ny = dy / l;
+
+  b.prevX = b.x;
+  b.prevY = b.y;
+  b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
+  b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
+  b.vx = nx * imp;
+  b.vy = ny * imp;
+  b.vz = kind === 'lob' ? 260 * Math.max(0.5, powerLevel) : (isOvercharged ? 95 : 0);
+  b.shotType = kind;
+
+  const moveCross = nx * (inp.y || 0) - ny * (inp.x || 0);
+  const effectiveCurve = curveSign !== 0 ? curveSign : moveCross;
+  const spin = kind === 'finesse'
+    ? (effectiveCurve !== 0 ? Math.sign(effectiveCurve) : (p.team === 'red' ? -1 : 1)) * 340 * powerLevel
+    : (kind === 'kick' ? effectiveCurve * 260 * powerLevel : (kind === 'lob' ? effectiveCurve * 140 * powerLevel : effectiveCurve * 90 * powerLevel));
+
+  b.curve = spin;
+  b.powerGlow = Math.min(1, powerLevel * speedBonus * (isOvercharged ? 1.2 : 1));
+  b.lastTeam = p.team;
+
+  if (!room.stats) room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  if (p.team === 'red' || p.team === 'blue') {
+    if (kind === 'kick' || kind === 'finesse' || kind === 'lob') {
+      room.stats.shots[p.team]++;
+      if (p.stats) p.stats.shots++;
     }
-    const today = new Date().toISOString().slice(0, 10);
-    if (!db.users[token].dailyQuest || db.users[token].dailyQuest.date !== today) {
-        db.users[token].dailyQuest = { date: today, progress: 0, target: 3, claimed: false };
-        saveDB();
+    if (kind === 'pass' || kind === 'lob') {
+      room.stats.passes[p.team]++;
+      if (p.stats) p.stats.passes++;
     }
-    return db.users[token];
+  }
+
+  recordTouch(room, playerId);
+  io.to(room.code).emit('ballImpact', { x: b.x, y: b.y, power: powerLevel, kind, overcharged: isOvercharged });
+  if (imp > 660) {
+    io.to(room.code).emit('screenShake', { intensity: Math.min(13, (imp - 600) / 36) });
+  }
 }
 
-function sanitizeUser(u) {
-    return {
-        id: u.id,
-        nickname: u.nickname,
-        coins: u.coins,
-        isAdmin: u.isAdmin,
-        ownedSkins: u.ownedSkins,
-        equippedSkin: u.equippedSkin,
-        stats: u.stats,
-        dailyLoginDate: u.dailyLoginDate,
-        dailyQuest: u.dailyQuest
-    };
+function resolveCircleRect(o, r, rx, ry, rw, rh, bounce) {
+  const closestX = Math.max(rx - rw / 2, Math.min(o.x, rx + rw / 2));
+  const closestY = Math.max(ry - rh / 2, Math.min(o.y, ry + rh / 2));
+  const dx = o.x - closestX, dy = o.y - closestY;
+  const d = Math.hypot(dx, dy);
+  if (d < r) {
+    const nx = d > 0.001 ? dx / d : 0;
+    const ny = d > 0.001 ? dy / d : -1;
+    o.x = closestX + nx * (r + 0.5);
+    o.y = closestY + ny * (r + 0.5);
+    const vn = o.vx * nx + o.vy * ny;
+    if (vn < 0) {
+      o.vx -= (1 + bounce) * vn * nx;
+      o.vy -= (1 + bounce) * vn * ny;
+    }
+  }
 }
 
-// Manifest для PWA
-app.get('/manifest.json', (req, res) => {
-    res.json({
-        name: 'Ball Brawl',
-        short_name: 'BallBrawl',
-        start_url: '/',
-        display: 'fullscreen',
-        orientation: 'landscape',
-        background_color: '#0f172a',
-        theme_color: '#0f172a'
-    });
-});
+function startRoomLoop(code) {
+  const room = rooms[code];
+  if (!room || room.loop) return;
+  room.code = code;
+  room.loopRunning = true;
+  room.lastTick = Date.now();
+  room.syncTick = 0;
+  room.score = { red: 0, blue: 0 };
+  room.stats = { shots: { red: 0, blue: 0 }, passes: { red: 0, blue: 0 }, possTicks: { red: 0, blue: 0 }, totalTicks: 0 };
+  for (const id in room.players) {
+    room.players[id].stats = { goals: 0, assists: 0, shots: 0, passes: 0, tackles: 0, saves: 0 };
+    room.players[id].stamina = 100;
+  }
+  room.startTime = Date.now();
+  room.mode = room.settings.mode || 'classic';
+  room.timeLeft = room.mode === 'time' ? (Number(room.settings.matchDuration) || MODES.time.duration) : 0;
+  resetPositions(room);
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
+  room.loop = setInterval(() => {
+    const now = Date.now();
+    let dt = (now - room.lastTick) / 1000;
+    room.lastTick = now;
+    if (dt > 0.05) dt = 0.05;
+    if (dt <= 0) return;
 
-// Автоматический матчмейкинг без кодов комнат
-const FIELD_W = 1200;
-const FIELD_H = 700;
-const GOAL_H = 190;
-const PLAYER_R = 24;
-const BALL_R = 14;
+    const bd = arenaBounds(room);
+    const iceFriction = room.settings.arena === 'ice' ? 0.996 : FRICTION;
+    const weatherFriction = WEATHERS[room.settings.weather] || 1;
 
-const matches = new Map();
+    if (room.mode === 'time') {
+      room.timeLeft -= dt;
+      if (room.timeLeft <= 0) { finishMatch(room, code); return; }
+    }
 
-function findOrCreateOpenMatch() {
-    for (const [id, m] of matches) {
-        if (m.phase === 'waiting' && m.players.length < 2) {
-            return m;
+    for (const id in room.players) {
+      const p = room.players[id];
+      if (p.team === 'spec') continue;
+
+      const inp = room.inputs[id] || { x: 0, y: 0 };
+      const moving = Math.hypot(inp.x, inp.y) > 0.06;
+      if (moving) p.facing = Math.atan2(inp.y, inp.x);
+
+      const staminaFactor = (p.stamina ?? 100) > 12 ? 1.0 : 0.78;
+      if ((p.dashTimer || 0) <= 0) {
+        p.vx += inp.x * PLAYER_ACCEL * staminaFactor * dt;
+        p.vy += inp.y * PLAYER_ACCEL * staminaFactor * dt;
+        p.stamina = Math.min(100, (p.stamina ?? 100) + (moving ? 9 : 19) * dt);
+      }
+
+      if (!moving && (p.dashTimer || 0) <= 0) {
+        const f = Math.pow(iceFriction * weatherFriction, dt * 60);
+        p.vx *= f; p.vy *= f;
+        if (Math.hypot(p.vx, p.vy) < 6) { p.vx = 0; p.vy = 0; }
+      } else if ((p.dashTimer || 0) <= 0) {
+        const sp = Math.hypot(p.vx, p.vy);
+        const maxSp = PLAYER_MAX * staminaFactor;
+        if (sp > maxSp) {
+          p.vx = p.vx / sp * maxSp;
+          p.vy = p.vy / sp * maxSp;
         }
-    }
-    const id = 'm_' + crypto.randomBytes(6).toString('hex');
-    const m = {
-        id,
-        phase: 'waiting', // waiting | playing | ended
-        countdown: 0,
-        countdownTimer: null,
-        timer: 120,
-        scoreBlue: 0,
-        scoreRed: 0,
-        goalCooldown: 0,
-        lastTouchBy: null,
-        prevTouchBy: null,
-        players: [],
-        ball: { x: FIELD_W / 2, y: FIELD_H / 2, vx: 0, vy: 0 }
-    };
-    matches.set(id, m);
-    return m;
-}
+      }
 
-function broadcastLobby(m) {
-    io.to(m.id).emit('lobby:state', {
-        players: m.players.map(p => ({
-            nickname: p.nickname,
-            team: p.team,
-            ready: p.isLandscape
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.dashCd > 0) p.dashCd -= dt;
+      if (p.dashTimer > 0) p.dashTimer -= dt;
+      if (p.tackleCd > 0) p.tackleCd -= dt;
+      if (p.pickupLock > 0) p.pickupLock -= dt;
+    }
+
+    const activeIds = Object.keys(room.players).filter(id => room.players[id].team !== 'spec');
+
+    for (let i = 0; i < activeIds.length; i++) {
+      for (let j = i + 1; j < activeIds.length; j++) {
+        const a = room.players[activeIds[i]], c = room.players[activeIds[j]];
+        const dx = c.x - a.x, dy = c.y - a.y;
+        const d = Math.hypot(dx, dy);
+        const md = PLAYER_R * 2;
+        if (d < md && d > 0.001) {
+          const nx = dx / d, ny = dy / d, ov = md - d;
+          a.x -= nx * ov * 0.55; a.y -= ny * ov * 0.55;
+          c.x += nx * ov * 0.55; c.y += ny * ov * 0.55;
+          const relVx = c.vx - a.vx, relVy = c.vy - a.vy;
+          const sepVel = relVx * nx + relVy * ny;
+          if (sepVel < 0) {
+            const imp = -sepVel * 0.65;
+            a.vx -= nx * imp; a.vy -= ny * imp;
+            c.vx += nx * imp; c.vy += ny * imp;
+          }
+        }
+      }
+    }
+
+    function boundRect(o, r) {
+      if (o.x < bd.minX + r) { o.x = bd.minX + r; o.vx = Math.abs(o.vx) * BOUNCE; }
+      if (o.x > bd.maxX - r) { o.x = bd.maxX - r; o.vx = -Math.abs(o.vx) * BOUNCE; }
+      if (o.y < bd.minY + r) { o.y = bd.minY + r; o.vy = Math.abs(o.vy) * BOUNCE; }
+      if (o.y > bd.maxY - r) { o.y = bd.maxY - r; o.vy = -Math.abs(o.vy) * BOUNCE; }
+      for (const [ox, oy, ow, oh] of bd.obstacles) {
+        resolveCircleRect(o, r, ox, oy, ow, oh, BOUNCE);
+      }
+    }
+    for (const id of activeIds) boundRect(room.players[id], PLAYER_R);
+
+    room.stats.totalTicks++;
+    const goalHalfH = (bd.h * 0.3) / 2;
+
+    for (let bi = 0; bi < room.balls.length; bi++) {
+      const b = room.balls[bi];
+      if (b.scored) continue;
+      b.prevX = b.x;
+      b.prevY = b.y;
+
+      if (b.ownerId && room.players[b.ownerId] && room.players[b.ownerId].team !== 'spec') {
+        const owner = room.players[b.ownerId];
+        const ang = owner.facing || 0;
+        b.x = owner.x + Math.cos(ang) * DRIBBLE_DIST;
+        b.y = owner.y + Math.sin(ang) * DRIBBLE_DIST;
+        b.vx = owner.vx;
+        b.vy = owner.vy;
+        b.z = 0; b.vz = 0; b.shotType = 'normal';
+        b.curve = 0;
+        b.powerGlow = 0;
+        b.lastTeam = owner.team;
+        recordTouch(room, b.ownerId);
+        if (owner.team === 'red' || owner.team === 'blue') room.stats.possTicks[owner.team]++;
+      } else {
+        b.ownerId = null;
+        if (b.lastTeam === 'red' || b.lastTeam === 'blue') room.stats.possTicks[b.lastTeam] += 0.25;
+
+        if (b.curve && Math.abs(b.curve) > 1) {
+          const perpX = -b.vy, perpY = b.vx;
+          const pl = Math.hypot(perpX, perpY) || 1;
+          b.vx += (perpX / pl) * b.curve * dt * 1.45;
+          b.vy += (perpY / pl) * b.curve * dt * 1.45;
+          b.curve *= Math.pow(0.89, dt * 60);
+        }
+        if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.75);
+
+        if ((b.z || 0) > 0 || (b.vz || 0) !== 0) {
+          b.vz = (b.vz || 0) - 640 * dt;
+          b.z = Math.max(0, (b.z || 0) + b.vz * dt);
+          if (b.z === 0 && b.vz < 0) {
+            b.vz = Math.abs(b.vz) * 0.45;
+            if (b.vz < 45) { b.vz = 0; b.shotType = 'normal'; }
+          }
+        }
+
+        const bf = Math.pow(iceFriction * weatherFriction * 0.992, dt * 60);
+        b.vx *= bf; b.vy *= bf;
+        b.x += b.vx * dt; b.y += b.vy * dt;
+
+        for (const [ox, oy, ow, oh] of bd.obstacles) {
+          resolveCircleRect(b, BALL_R, ox, oy, ow, oh, BOUNCE);
+        }
+
+        const canPickup = (b.z || 0) < 22;
+        if (canPickup) {
+          for (const id of activeIds) {
+            const p = room.players[id];
+            if (p.pickupLock > 0) continue;
+            const d = Math.hypot(b.x - p.x, b.y - p.y);
+            if (d <= PLAYER_R + BALL_R + 5) {
+              if (b.lastTeam && b.lastTeam !== p.team && Math.hypot(b.vx, b.vy) > 420 && p.stats) {
+                p.stats.saves++;
+              }
+              b.ownerId = id;
+              b.lastTeam = p.team;
+              recordTouch(room, id);
+              break;
+            }
+          }
+        }
+      }
+
+      if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
+      if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
+
+      const crossedLeft = (b.prevX >= bd.minX && b.x <= bd.minX + BALL_R * 0.35) || b.x < bd.minX - BALL_R * 0.4;
+      const crossedRight = (b.prevX <= bd.maxX && b.x >= bd.maxX - BALL_R * 0.35) || b.x > bd.maxX + BALL_R * 0.4;
+      const inGoalY = Math.abs(b.y) <= goalHalfH + BALL_R * 0.25;
+      const inGoalZ = (b.z || 0) <= 68;
+
+      const isGoalLeft = crossedLeft && inGoalY && inGoalZ;
+      const isGoalRight = crossedRight && inGoalY && inGoalZ;
+
+      if (!isGoalLeft && !isGoalRight) {
+        if (b.x < bd.minX + BALL_R) { b.x = bd.minX + BALL_R; b.vx = Math.abs(b.vx) * BOUNCE; }
+        if (b.x > bd.maxX - BALL_R) { b.x = bd.maxX - BALL_R; b.vx = -Math.abs(b.vx) * BOUNCE; }
+        continue;
+      }
+
+      b.scored = true;
+      const toucherId = room.lastToucher;
+      const toucher = toucherId ? room.players[toucherId] : null;
+      const scoringTeam = isGoalLeft ? 'blue' : 'red';
+      const isOwnGoal = Boolean(toucher && toucher.team !== scoringTeam);
+
+      let assistName = '';
+      if (!isOwnGoal && toucher && room.prevToucher && room.prevToucher !== toucherId) {
+        const assister = room.players[room.prevToucher];
+        if (assister && assister.team === scoringTeam) {
+          if (assister.stats) assister.stats.assists++;
+          assistName = assister.name;
+        }
+      }
+
+      if (toucher && toucher.stats && !isOwnGoal) toucher.stats.goals++;
+      const scorerName = toucher ? (isOwnGoal ? `${toucher.name} (Автогол)` : toucher.name) : '';
+      const celebration = toucher?.celebration || CELEBRATIONS[room.score[scoringTeam] % CELEBRATIONS.length];
+
+      room.score[scoringTeam]++;
+      room.combo[scoringTeam]++;
+
+      const comboLbl = room.combo[scoringTeam] >= 4 ? 'ОГОНЬ!' :
+                       room.combo[scoringTeam] === 3 ? 'ХЕТ-ТРИК!' :
+                       room.combo[scoringTeam] === 2 ? 'ДУБЛЬ!' : '';
+
+      io.to(code).emit('goal', {
+        team: scoringTeam,
+        red: room.score.red,
+        blue: room.score.blue,
+        scorerId: toucherId || null,
+        scorerName,
+        assistName,
+        isOwnGoal,
+        celebration,
+        combo: comboLbl,
+        players: getPlayersPublic(room)
+      });
+
+      const otherTeam = scoringTeam === 'red' ? 'blue' : 'red';
+      room.combo[otherTeam] = 0;
+
+      const goalLimit = MODES[room.mode]?.goals || 5;
+      if (room.score[scoringTeam] >= goalLimit) { finishMatch(room, code); return; }
+      resetPositions(room);
+      break;
+    }
+
+    room.syncTick++;
+    const every = Math.max(1, Math.round(SERVER_TICK / SYNC_RATE));
+    if (room.syncTick >= every) {
+      room.syncTick = 0;
+      const snap = {
+        balls: room.balls.map(b => ({
+          x: b.x, y: b.y, vx: b.vx, vy: b.vy, z: b.z || 0,
+          curve: b.curve, powerGlow: b.powerGlow, ownerId: b.ownerId
         })),
-        countdown: m.countdown
-    });
-}
-
-function evaluateLobbyReadiness(m) {
-    if (m.phase !== 'waiting') return;
-    const allReady = m.players.length === 2 && m.players.every(p => p.isLandscape);
-    if (!allReady) {
-        if (m.countdownTimer) {
-            clearInterval(m.countdownTimer);
-            m.countdownTimer = null;
-        }
-        m.countdown = 0;
-        broadcastLobby(m);
-        return;
+        players: {},
+        timeLeft: room.timeLeft,
+        stats: room.stats,
+        playerStats: Object.fromEntries(activeIds.map(id => [id, room.players[id].stats]))
+      };
+      for (const id of activeIds) {
+        const p = room.players[id];
+        snap.players[id] = {
+          x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
+          stamina: p.stamina ?? 100,
+          dashCd: p.dashCd, tackleCd: p.tackleCd, dashTimer: p.dashTimer,
+          lastSeq: room.lastSeq[id] || 0
+        };
+      }
+      io.to(code).volatile.emit('state', snap);
     }
-    if (!m.countdownTimer) {
-        m.countdown = 3;
-        broadcastLobby(m);
-        m.countdownTimer = setInterval(() => {
-            if (!m.players.every(p => p.isLandscape) || m.players.length < 2) {
-                clearInterval(m.countdownTimer);
-                m.countdownTimer = null;
-                m.countdown = 0;
-                broadcastLobby(m);
-                return;
-            }
-            m.countdown--;
-            broadcastLobby(m);
-            if (m.countdown <= 0) {
-                clearInterval(m.countdownTimer);
-                m.countdownTimer = null;
-                m.phase = 'playing';
-                resetMatchPositions(m);
-                io.to(m.id).emit('match:start', serializeMatch(m));
-            }
-        }, 1000);
-    }
+  }, 1000 / SERVER_TICK);
 }
 
-function resetMatchPositions(m) {
-    m.ball.x = FIELD_W / 2;
-    m.ball.y = FIELD_H / 2;
-    m.ball.vx = 0;
-    m.ball.vy = 0;
-    m.players.forEach(p => {
-        p.x = p.team === 'blue' ? 300 : 900;
-        p.y = FIELD_H / 2;
-        p.vx = 0;
-        p.vy = 0;
-    });
-}
-
-function serializeMatch(m) {
-    return {
-        timer: m.timer,
-        scoreBlue: m.scoreBlue,
-        scoreRed: m.scoreRed,
-        ball: m.ball,
-        players: m.players.map(p => ({
-            token: p.token,
-            nickname: p.nickname,
-            team: p.team,
-            x: p.x,
-            y: p.y,
-            aimX: p.aimX,
-            aimY: p.aimY,
-            color: p.color
-        }))
-    };
-}
-
-function awardMatchEconomy(user, matchKey, result, goals, assists) {
-    const claimId = `${matchKey}_${user.token}`;
-    if (db.claimedMatches[claimId]) return 0;
-    db.claimedMatches[claimId] = true;
-
-    let coins = 0;
-    if (result === 'win') { coins += 100; user.stats.wins++; }
-    else if (result === 'draw') { coins += 50; user.stats.draws++; }
-    else { coins += 25; user.stats.losses++; }
-
-    coins += goals * 20;
-    coins += assists * 15;
-
-    const today = new Date().toISOString().slice(0, 10);
-    if (user.firstMatchDate !== today) {
-        user.firstMatchDate = today;
-        coins += 50;
-    }
-
-    user.stats.matches++;
-    user.stats.goals += goals;
-    user.stats.assists += assists;
-    user.coins += coins;
-    user.dailyQuest.progress += goals;
-    saveDB();
-    return coins;
+function finishMatch(room, code) {
+  if (room.loop) clearInterval(room.loop);
+  room.loop = null;
+  room.loopRunning = false;
+  room.started = false;
+  let winner = 'draw';
+  if (room.score.red > room.score.blue) winner = 'red';
+  else if (room.score.blue > room.score.red) winner = 'blue';
+  io.to(code).emit('matchEnd', {
+    winner,
+    red: room.score.red,
+    blue: room.score.blue,
+    stats: room.stats,
+    players: getPlayersPublic(room)
+  });
 }
 
 io.on('connection', (socket) => {
-    let currentUser = null;
-    let currentMatchId = null;
+  socket.on('pingCheck', (ts, cb) => { if (typeof cb === 'function') cb(ts); });
 
-    socket.on('auth', ({ token }) => {
-        if (!token || typeof token !== 'string') return;
-        currentUser = getOrCreateUser(token);
-        socket.emit('auth:ok', { profile: sanitizeUser(currentUser), skins: SKINS });
+  socket.on('createRoom', ({ name, color, number, skin, ballSkin, celebration, arenaColor }, cb) => {
+    const code = genCode();
+    rooms[code] = {
+      players: {}, inputs: {}, lastSeq: {}, teamHistory: {},
+      lastToucher: null, prevToucher: null,
+      loop: null, loopRunning: false, host: socket.id, started: false,
+      settings: {
+        arena: 'classic', mode: 'classic', matchDuration: 120,
+        weather: 'clear', ballSkin: ballSkin || 'classic',
+        arenaColor: arenaColor || '#2a6d2a'
+      }
+    };
+    const room = rooms[code];
+    const cleanName = sanitize(name);
+    room.teamHistory[cleanName] = 'red';
+    room.players[socket.id] = createPlayerState({
+      name: cleanName, color: sanitizeColor(color), number: sanitizeNum(number),
+      skin: sanitize(skin || 'plain').slice(0, 10),
+      celebration: CELEBRATIONS.includes(celebration) ? celebration : 'jump',
+      team: 'red'
     });
+    room.inputs[socket.id] = { x: 0, y: 0 };
+    socket.join(code);
+    socket.roomCode = code;
+    cb({ ok: true, code, players: getPlayersPublic(room), host: socket.id, settings: room.settings });
+  });
 
-    socket.on('profile:nickname', ({ nickname }) => {
-        if (!currentUser || !nickname) return;
-        currentUser.nickname = String(nickname).trim().slice(0, 16);
-        saveDB();
-        socket.emit('profile:update', sanitizeUser(currentUser));
+  socket.on('joinRoom', ({ code, name, color, number, skin, celebration, spectator }, cb) => {
+    code = (code || '').toUpperCase().trim();
+    if (!rooms[code]) return cb({ ok: false, error: 'Комната не найдена' });
+    const room = rooms[code];
+    if (Object.keys(room.players).length >= MAX_PLAYERS) return cb({ ok: false, error: 'Комната заполнена' });
+
+    const cleanName = sanitize(name);
+    let team = spectator ? 'spec' : (room.teamHistory[cleanName] || assignTeams(room));
+    if (room.started && team !== 'spec') team = 'spec';
+    if (team !== 'spec') room.teamHistory[cleanName] = team;
+
+    room.players[socket.id] = createPlayerState({
+      name: cleanName, color: sanitizeColor(color), number: sanitizeNum(number),
+      skin: sanitize(skin || 'plain').slice(0, 10),
+      celebration: CELEBRATIONS.includes(celebration) ? celebration : 'jump',
+      team
     });
+    room.inputs[socket.id] = { x: 0, y: 0 };
+    socket.join(code);
+    socket.roomCode = code;
 
-    // Промокоды (включая скрытый админ-код на сервере)
-    socket.on('promo:redeem', ({ code }) => {
-        if (!currentUser || typeof code !== 'string') return;
-        const rawCode = code.trim();
-        const codeHash = crypto.createHash('sha256').update(rawCode).digest('hex');
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+    cb({ ok: true, code, players: getPlayersPublic(room), host: room.host, settings: room.settings, started: room.started });
+  });
 
-        if (codeHash === ADMIN_SECRET_HASH) {
-            currentUser.isAdmin = true;
-            saveDB();
-            logAdmin(currentUser.id, 'Активирован доступ администратора');
-            socket.emit('profile:update', sanitizeUser(currentUser));
-            socket.emit('toast', 'Доступ администратора активирован');
-            return;
-        }
-
-        const upper = rawCode.toUpperCase();
-        const promo = db.promos[upper];
-        if (!promo) {
-            socket.emit('toast', 'Неверный промокод');
-            return;
-        }
-        if (promo.usedBy.includes(currentUser.token)) {
-            socket.emit('toast', 'Вы уже активировали этот промокод');
-            return;
-        }
-        if (promo.usedBy.length >= promo.maxUses) {
-            socket.emit('toast', 'Лимит активаций промокода исчерпан');
-            return;
-        }
-
-        promo.usedBy.push(currentUser.token);
-        if (promo.type === 'coins') {
-            currentUser.coins += promo.value;
-            socket.emit('toast', `Промокод активирован! +${promo.value} монет`);
-        } else if (promo.type === 'skin') {
-            const commonSkins = SKINS.filter(s => s.rarity === 'common' && !currentUser.ownedSkins.includes(s.id));
-            if (commonSkins.length > 0) {
-                const chosen = commonSkins[0];
-                currentUser.ownedSkins.push(chosen.id);
-                socket.emit('toast', `Получен скин: ${chosen.name}!`);
-            } else {
-                currentUser.coins += 500;
-                socket.emit('toast', 'Все обычные скины уже есть! Компенсация: +500 монет');
-            }
-        }
-        saveDB();
-        socket.emit('profile:update', sanitizeUser(currentUser));
-    });
-
-    // Магазин
-    socket.on('shop:buy', ({ skinId }) => {
-        if (!currentUser) return;
-        const skin = SKINS.find(s => s.id === skinId);
-        if (!skin) return;
-        if (currentUser.ownedSkins.includes(skin.id)) {
-            socket.emit('toast', 'Скин уже куплен');
-            return;
-        }
-        if (currentUser.coins < skin.price) {
-            socket.emit('toast', 'Недостаточно монет');
-            return;
-        }
-        currentUser.coins -= skin.price;
-        currentUser.ownedSkins.push(skin.id);
-        currentUser.equippedSkin = skin.id;
-        saveDB();
-        socket.emit('profile:update', sanitizeUser(currentUser));
-        socket.emit('toast', `Скин «${skin.name}» куплен!`);
-    });
-
-    socket.on('shop:equip', ({ skinId }) => {
-        if (!currentUser || !currentUser.ownedSkins.includes(skinId)) return;
-        currentUser.equippedSkin = skinId;
-        saveDB();
-        socket.emit('profile:update', sanitizeUser(currentUser));
-    });
-
-    // Ежедневные награды
-    socket.on('reward:daily_login', () => {
-        if (!currentUser) return;
-        const today = new Date().toISOString().slice(0, 10);
-        if (currentUser.dailyLoginDate === today) return;
-        const reward = Math.floor(30 + Math.random() * 71); // 30..100
-        currentUser.dailyLoginDate = today;
-        currentUser.coins += reward;
-        saveDB();
-        socket.emit('profile:update', sanitizeUser(currentUser));
-        socket.emit('toast', `Ежедневный бонус: +${reward} монет`);
-    });
-
-    socket.on('reward:daily_quest', () => {
-        if (!currentUser) return;
-        const q = currentUser.dailyQuest;
-        if (q.claimed || q.progress < q.target) return;
-        const reward = Math.floor(75 + Math.random() * 76); // 75..150
-        q.claimed = true;
-        currentUser.coins += reward;
-        saveDB();
-        socket.emit('profile:update', sanitizeUser(currentUser));
-        socket.emit('toast', `Задание выполнено: +${reward} монет`);
-    });
-
-    // Завершение одиночного матча
-    socket.on('solo:finish', ({ matchId, result, goals, assists }) => {
-        if (!currentUser || !matchId) return;
-        const g = Math.max(0, Math.min(30, Number(goals) || 0));
-        const a = Math.max(0, Math.min(30, Number(assists) || 0));
-        const earned = awardMatchEconomy(currentUser, matchId, result, g, a);
-        socket.emit('profile:update', sanitizeUser(currentUser));
-        if (earned > 0) socket.emit('toast', `Матч завершён! +${earned} монет`);
-    });
-
-    // Админ-функции (строгая проверка прав на сервере)
-    socket.on('admin:get_data', () => {
-        if (!currentUser || !currentUser.isAdmin) return;
-        socket.emit('admin:data', {
-            players: Object.values(db.users).map(sanitizeUser),
-            logs: db.adminLogs
-        });
-    });
-
-    socket.on('admin:update_player', ({ targetId, coinsDelta, setCoins, wins, goals, matches: mCount, grantSkin }) => {
-        if (!currentUser || !currentUser.isAdmin) return;
-        const target = Object.values(db.users).find(u => u.id === targetId);
-        if (!target) return;
-
-        if (typeof coinsDelta === 'number' && !isNaN(coinsDelta)) {
-            target.coins = Math.max(0, target.coins + coinsDelta);
-            logAdmin(currentUser.id, `Изменил монеты ${target.id} на ${coinsDelta}`);
-        }
-        if (typeof setCoins === 'number' && !isNaN(setCoins)) {
-            target.coins = Math.max(0, setCoins);
-            logAdmin(currentUser.id, `Установил баланс ${target.id} = ${setCoins}`);
-        }
-        if (typeof wins === 'number' && !isNaN(wins)) target.stats.wins = Math.max(0, wins);
-        if (typeof goals === 'number' && !isNaN(goals)) target.stats.goals = Math.max(0, goals);
-        if (typeof mCount === 'number' && !isNaN(mCount)) target.stats.matches = Math.max(0, mCount);
-        if (grantSkin && SKINS.some(s => s.id === grantSkin) && !target.ownedSkins.includes(grantSkin)) {
-            target.ownedSkins.push(grantSkin);
-            logAdmin(currentUser.id, `Выдал скин ${grantSkin} игроку ${target.id}`);
-        }
-        saveDB();
-        socket.emit('admin:data', { players: Object.values(db.users).map(sanitizeUser), logs: db.adminLogs });
-        if (target.token === currentUser.token) socket.emit('profile:update', sanitizeUser(currentUser));
-    });
-
-    socket.on('admin:create_promo', ({ code, type, value, maxUses }) => {
-        if (!currentUser || !currentUser.isAdmin || !code) return;
-        const upper = String(code).trim().toUpperCase();
-        db.promos[upper] = {
-            type: type === 'skin' ? 'skin' : 'coins',
-            value: Math.max(1, Number(value) || 50),
-            maxUses: Math.max(1, Number(maxUses) || 100),
-            usedBy: []
-        };
-        logAdmin(currentUser.id, `Создал промокод ${upper}`);
-        socket.emit('admin:data', { players: Object.values(db.users).map(sanitizeUser), logs: db.adminLogs });
-        socket.emit('toast', `Промокод ${upper} создан`);
-    });
-
-    // Онлайн матчмейкинг
-    socket.on('matchmaking:join', ({ isLandscape }) => {
-        if (!currentUser) return;
-        leaveCurrentMatch();
-        const m = findOrCreateOpenMatch();
-        currentMatchId = m.id;
-        socket.join(m.id);
-        const team = m.players.some(p => p.team === 'blue') ? 'red' : 'blue';
-        const skinObj = SKINS.find(s => s.id === currentUser.equippedSkin);
-        m.players.push({
-            socketId: socket.id,
-            token: currentUser.token,
-            nickname: currentUser.nickname,
-            team,
-            color: skinObj ? skinObj.color : '#3b82f6',
-            isLandscape: Boolean(isLandscape),
-            x: team === 'blue' ? 300 : 900,
-            y: FIELD_H / 2,
-            vx: 0,
-            vy: 0,
-            aimX: team === 'blue' ? 1 : -1,
-            aimY: 0,
-            moveX: 0,
-            moveY: 0,
-            goals: 0,
-            assists: 0
-        });
-        evaluateLobbyReadiness(m);
-    });
-
-    socket.on('player:orientation', ({ isLandscape }) => {
-        if (!currentMatchId) return;
-        const m = matches.get(currentMatchId);
-        if (!m) return;
-        const p = m.players.find(x => x.socketId === socket.id);
-        if (p) {
-            p.isLandscape = Boolean(isLandscape);
-            if (m.phase === 'waiting') evaluateLobbyReadiness(m);
-        }
-    });
-
-    socket.on('player:input', ({ moveX, moveY, aimX, aimY }) => {
-        if (!currentMatchId) return;
-        const m = matches.get(currentMatchId);
-        if (!m || m.phase !== 'playing') return;
-        const p = m.players.find(x => x.socketId === socket.id);
-        if (!p) return;
-        p.moveX = Math.max(-1, Math.min(1, Number(moveX) || 0));
-        p.moveY = Math.max(-1, Math.min(1, Number(moveY) || 0));
-        const len = Math.hypot(aimX, aimY);
-        if (len > 0.01) {
-            p.aimX = aimX / len;
-            p.aimY = aimY / len;
-        }
-    });
-
-    socket.on('player:kick', ({ aimX, aimY }) => {
-        if (!currentMatchId) return;
-        const m = matches.get(currentMatchId);
-        if (!m || m.phase !== 'playing' || m.goalCooldown > 0) return;
-        const p = m.players.find(x => x.socketId === socket.id);
-        if (!p) return;
-        const len = Math.hypot(aimX, aimY) || 1;
-        p.aimX = (Number(aimX) || p.aimX) / len;
-        p.aimY = (Number(aimY) || p.aimY) / len;
-        const dist = Math.hypot(m.ball.x - p.x, m.ball.y - p.y);
-        if (dist <= PLAYER_R + BALL_R + 24) {
-            m.ball.vx = p.aimX * 15.5;
-            m.ball.vy = p.aimY * 15.5;
-            if (m.lastTouchBy !== p.token) {
-                m.prevTouchBy = m.lastTouchBy;
-                m.lastTouchBy = p.token;
-            }
-        }
-    });
-
-    function leaveCurrentMatch() {
-        if (!currentMatchId) return;
-        const m = matches.get(currentMatchId);
-        if (m) {
-            m.players = m.players.filter(p => p.socketId !== socket.id);
-            socket.leave(m.id);
-            if (m.players.length === 0) {
-                if (m.countdownTimer) clearInterval(m.countdownTimer);
-                matches.delete(m.id);
-            } else if (m.phase === 'waiting') {
-                evaluateLobbyReadiness(m);
-            }
-        }
-        currentMatchId = null;
+  socket.on('switchTeam', (targetTeam) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code] || rooms[code].started) return;
+    const room = rooms[code];
+    const p = room.players[socket.id];
+    if (!p || !['red', 'blue', 'spec'].includes(targetTeam)) return;
+    if (targetTeam !== 'spec') {
+      const count = Object.values(room.players).filter(x => x.team === targetTeam).length;
+      if (count >= 2) return;
+      room.teamHistory[p.name] = targetTeam;
     }
+    p.team = targetTeam;
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+  });
 
-    socket.on('match:leave', leaveCurrentMatch);
-    socket.on('disconnect', leaveCurrentMatch);
+  socket.on('updateSettings', (settings) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    if (room.host !== socket.id) return;
+    if (settings.arena && ARENAS[settings.arena]) room.settings.arena = settings.arena;
+    if (settings.mode && MODES[settings.mode]) room.settings.mode = settings.mode;
+    if (settings.matchDuration) {
+      const dur = parseInt(settings.matchDuration, 10);
+      if ([60, 120, 180, 300].includes(dur)) room.settings.matchDuration = dur;
+    }
+    if (settings.weather && WEATHERS[settings.weather]) room.settings.weather = settings.weather;
+    if (settings.ballSkin) room.settings.ballSkin = sanitize(settings.ballSkin).slice(0, 10);
+    if (settings.arenaColor && /^#[0-9a-fA-F]{6}$/.test(settings.arenaColor)) room.settings.arenaColor = settings.arenaColor;
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+  });
+
+  socket.on('startGame', () => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    if (room.host !== socket.id) return;
+    const activeCount = Object.values(room.players).filter(p => p.team !== 'spec').length;
+    if (activeCount < 2) return;
+    room.started = true;
+    io.to(code).emit('countdown');
+    setTimeout(() => {
+      if (!rooms[code]) return;
+      io.to(code).emit('gameStarted', { players: getPlayersPublic(room), settings: room.settings });
+      startRoomLoop(code);
+    }, 3200);
+  });
+
+  socket.on('input', (data) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const inp = rooms[code].inputs[socket.id];
+    if (!inp) return;
+    let x = Number(data.x) || 0, y = Number(data.y) || 0;
+    const l = Math.hypot(x, y);
+    if (l < 0.05) { x = 0; y = 0; }
+    else if (l > 1) { x /= l; y /= l; }
+    inp.x = x; inp.y = y;
+    if (data.seq) rooms[code].lastSeq[socket.id] = Number(data.seq);
+  });
+
+  socket.on('action', ({ type, dirX, dirY, power, curveSign }) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    const p = room.players[socket.id];
+    if (!p || p.team === 'spec') return;
+
+    if (type === 'dash') {
+      if (p.dashCd > 0 || (p.stamina ?? 100) < 20) return;
+      p.stamina = Math.max(0, (p.stamina ?? 100) - 24);
+      p.dashCd = DASH_CD;
+      p.dashTimer = 0.28;
+      const inp = room.inputs[socket.id] || { x: 0, y: 0 };
+      const l = Math.hypot(inp.x, inp.y);
+      const nx = l > 0.1 ? inp.x / l : Math.cos(p.facing || 0);
+      const ny = l > 0.1 ? inp.y / l : Math.sin(p.facing || 0);
+      p.vx = nx * DASH_IMPULSE;
+      p.vy = ny * DASH_IMPULSE;
+    } else if (type === 'tackle') {
+      if (p.tackleCd > 0) return;
+      p.tackleCd = TACKLE_CD;
+      if (p.stats) p.stats.tackles++;
+      const fx = Math.cos(p.facing || 0), fy = Math.sin(p.facing || 0);
+      p.vx += fx * 340; p.vy += fy * 340;
+
+      for (const b of room.balls) {
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        if (d < PLAYER_R + BALL_R + 62) {
+          if (b.ownerId && b.ownerId !== socket.id && room.players[b.ownerId]) {
+            room.players[b.ownerId].pickupLock = 0.6;
+            room.players[b.ownerId].vx *= 0.35;
+            room.players[b.ownerId].vy *= 0.35;
+          }
+          b.ownerId = socket.id;
+          b.lastTeam = p.team;
+          recordTouch(room, socket.id);
+        }
+      }
+    } else if (type === 'kick' || type === 'pass' || type === 'lob' || type === 'finesse') {
+      let bestB = null, bestD = 9999;
+      for (const b of room.balls) {
+        if (b.ownerId === socket.id) { bestB = b; break; }
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        const range = (type === 'kick' || type === 'finesse' ? 92 : 106) + PLAYER_R + BALL_R;
+        if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
+      }
+      if (!bestB) return;
+      const powerLevel = Math.max(0.25, Math.min(1, power || 1));
+      applyShot(room, p, socket.id, bestB, type, dirX || 0, dirY || 0, powerLevel, Number(curveSign) || 0);
+    }
+  });
+
+  socket.on('emote', (em) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    if (!rooms[code].players[socket.id]) return;
+    io.to(code).emit('emote', { id: socket.id, em: String(em).slice(0, 4) });
+  });
+
+  socket.on('chat', (msg) => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const p = rooms[code].players[socket.id];
+    if (!p) return;
+    io.to(code).emit('chat', { name: p.name, msg: String(msg).slice(0, 100) });
+  });
+
+  socket.on('rematch', () => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    if (room.host !== socket.id) return;
+    room.started = true;
+    io.to(code).emit('countdown');
+    setTimeout(() => {
+      if (!rooms[code]) return;
+      io.to(code).emit('gameStarted', { players: getPlayersPublic(room), settings: room.settings });
+      startRoomLoop(code);
+    }, 3200);
+  });
+
+  socket.on('disconnect', () => {
+    const code = socket.roomCode;
+    if (!code || !rooms[code]) return;
+    const room = rooms[code];
+    for (const b of room.balls) { if (b.ownerId === socket.id) b.ownerId = null; }
+    delete room.players[socket.id];
+    delete room.inputs[socket.id];
+    delete room.lastSeq[socket.id];
+    if (Object.keys(room.players).length === 0) {
+      if (room.loop) clearInterval(room.loop);
+      delete rooms[code];
+      return;
+    }
+    if (room.host === socket.id) room.host = Object.keys(room.players)[0];
+    io.to(code).emit('lobbyUpdate', { players: getPlayersPublic(room), host: room.host, settings: room.settings });
+    io.to(code).emit('playerLeft', socket.id);
+  });
 });
 
-// Серверный игровой цикл 30 FPS
-setInterval(() => {
-    const dt = 1 / 30;
-    const goalTop = (FIELD_H - GOAL_H) / 2;
-    const goalBottom = (FIELD_H + GOAL_H) / 2;
-
-    for (const [id, m] of matches) {
-        if (m.phase !== 'playing') continue;
-        m.timer -= dt;
-        if (m.timer <= 0) {
-            m.phase = 'ended';
-            for (const p of m.players) {
-                const user = db.users[p.token];
-                if (!user) continue;
-                const won = (p.team === 'blue' && m.scoreBlue > m.scoreRed) || (p.team === 'red' && m.scoreRed > m.scoreBlue);
-                const draw = m.scoreBlue === m.scoreRed;
-                const res = won ? 'win' : (draw ? 'draw' : 'loss');
-                const coinsEarned = awardMatchEconomy(user, m.id, res, p.goals, p.assists);
-                io.to(p.socketId).emit('profile:update', sanitizeUser(user));
-                io.to(p.socketId).emit('match:end', { coinsEarned });
-            }
-            matches.delete(id);
-            continue;
-        }
-
-        if (m.goalCooldown > 0) {
-            m.goalCooldown -= dt;
-            io.to(m.id).emit('match:state', serializeMatch(m));
-            continue;
-        }
-
-        for (const p of m.players) {
-            p.x = Math.max(PLAYER_R, Math.min(FIELD_W - PLAYER_R, p.x + p.moveX * 5.2));
-            p.y = Math.max(PLAYER_R, Math.min(FIELD_H - PLAYER_R, p.y + p.moveY * 5.2));
-        }
-
-        const steps = 4;
-        for (let s = 0; s < steps; s++) {
-            m.ball.x += m.ball.vx / steps;
-            m.ball.y += m.ball.vy / steps;
-
-            for (const p of m.players) {
-                const dx = m.ball.x - p.x;
-                const dy = m.ball.y - p.y;
-                const d = Math.hypot(dx, dy);
-                const minD = PLAYER_R + BALL_R;
-                if (d < minD && d > 0.001) {
-                    const nx = dx / d;
-                    const ny = dy / d;
-                    m.ball.x = p.x + nx * minD;
-                    m.ball.y = p.y + ny * minD;
-                    m.ball.vx = nx * 6.5 + p.moveX * 3.5;
-                    m.ball.vy = ny * 6.5 + p.moveY * 3.5;
-                    if (m.lastTouchBy !== p.token) {
-                        m.prevTouchBy = m.lastTouchBy;
-                        m.lastTouchBy = p.token;
-                    }
-                }
-            }
-
-            if (m.ball.y - BALL_R < 0) {
-                m.ball.y = BALL_R;
-                m.ball.vy = Math.abs(m.ball.vy) * 0.85;
-            } else if (m.ball.y + BALL_R > FIELD_H) {
-                m.ball.y = FIELD_H - BALL_R;
-                m.ball.vy = -Math.abs(m.ball.vy) * 0.85;
-            }
-
-            const inGoalY = m.ball.y >= goalTop && m.ball.y <= goalBottom;
-            if (m.ball.x - BALL_R <= 0) {
-                if (inGoalY) {
-                    registerOnlineGoal(m, 'red');
-                    break;
-                } else {
-                    m.ball.x = BALL_R;
-                    m.ball.vx = Math.abs(m.ball.vx) * 0.85;
-                }
-            }
-            if (m.ball.x + BALL_R >= FIELD_W) {
-                if (inGoalY) {
-                    registerOnlineGoal(m, 'blue');
-                    break;
-                } else {
-                    m.ball.x = FIELD_W - BALL_R;
-                    m.ball.vx = -Math.abs(m.ball.vx) * 0.85;
-                }
-            }
-        }
-
-        m.ball.vx *= 0.985;
-        m.ball.vy *= 0.985;
-        io.to(m.id).emit('match:state', serializeMatch(m));
-    }
-}, 1000 / 30);
-
-function registerOnlineGoal(m, scoringTeam) {
-    if (m.goalCooldown > 0) return;
-    m.goalCooldown = 1.5;
-
-    const scorer = m.players.find(p => p.token === m.lastTouchBy);
-    const assister = m.players.find(p => p.token === m.prevTouchBy);
-    const isOwnGoal = scorer && scorer.team !== scoringTeam;
-
-    if (scoringTeam === 'blue') m.scoreBlue++;
-    else m.scoreRed++;
-
-    if (!isOwnGoal && scorer) {
-        scorer.goals++;
-        if (assister && assister.team === scoringTeam && assister.token !== scorer.token) {
-            assister.assists++;
-        }
-    }
-
-    io.to(m.id).emit('toast', isOwnGoal ? 'АВТОГОЛ!' : `ГОЛ! Забила команда ${scoringTeam === 'blue' ? 'Синих' : 'Красных'}!`);
-    m.lastTouchBy = null;
-    m.prevTouchBy = null;
-    setTimeout(() => resetMatchPositions(m), 800);
-}
-
-server.listen(PORT, () => {
-    console.log(`Ball Brawl server running on http://localhost:${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log('Ball Brawl v8 on port ' + PORT));
