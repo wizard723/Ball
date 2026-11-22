@@ -9,12 +9,12 @@ const io = new Server(server, { cors: { origin: '*' }, pingTimeout: 20000, pingI
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PLAYER_R = 30, BALL_R = 20;
-const PLAYER_MAX = 260, SPRINT_MAX = 430, STAMINA_PENALTY_MAX = 140;
-const PLAYER_ACCEL = 750, SPRINT_ACCEL = 1150;
+const PLAYER_MAX = 205, DASH_IMPULSE = 380;
+const PLAYER_ACCEL = 680;
 const FRICTION = 0.982, BOUNCE = 0.72;
-const KICK_MAX = 900, PASS_MAX = 560;
-const DASH_IMPULSE = 520, DASH_CD = 2.5, TACKLE_CD = 3;
-const AUTO_MAGNET_RANGE = 320, AUTO_MAGNET_FORCE = 680; // Усиленный магнит (3.4x) и радиус 320
+const KICK_MAX = 820, PASS_MAX = 520;
+const DASH_CD = 2.0, TACKLE_CD = 2.2;
+const DRIBBLE_DIST = PLAYER_R + BALL_R + 4;
 const SERVER_TICK = 60, SYNC_RATE = 30, MAX_PLAYERS = 6;
 
 const ARENAS = {
@@ -60,23 +60,21 @@ function resetPositions(room) {
   reds.forEach((id, i) => {
     const p = room.players[id];
     const spread = reds.length === 1 ? 0 : (i - (reds.length - 1) / 2) * 80;
-    p.x = bd.minX + 150; p.y = spread; p.vx = 0; p.vy = 0;
-    p.sprinting = false; p.fatigueTimer = 0; p.joyHoldTime = 0;
+    p.x = bd.minX + 150; p.y = spread; p.vx = 0; p.vy = 0; p.facing = 0; p.pickupLock = 0;
   });
   blues.forEach((id, i) => {
     const p = room.players[id];
     const spread = blues.length === 1 ? 0 : (i - (blues.length - 1) / 2) * 80;
-    p.x = bd.maxX - 150; p.y = spread; p.vx = 0; p.vy = 0;
-    p.sprinting = false; p.fatigueTimer = 0; p.joyHoldTime = 0;
+    p.x = bd.maxX - 150; p.y = spread; p.vx = 0; p.vy = 0; p.facing = Math.PI; p.pickupLock = 0;
   });
 
-  room.balls = [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0 }];
+  room.balls = [{ x: 0, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }];
   if (room.settings.mode === 'chaos') {
-    room.balls.push({ x: 0, y: -200, vx: 0, vy: 0, curve: 0, powerGlow: 0 });
-    room.balls.push({ x: 0, y: 200, vx: 0, vy: 0, curve: 0, powerGlow: 0 });
+    room.balls.push({ x: 0, y: -200, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null });
+    room.balls.push({ x: 0, y: 200, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null });
   }
   if (room.settings.mode === 'penalty') {
-    room.balls = [{ x: -bd.w / 2 + 300, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0 }];
+    room.balls = [{ x: -bd.w / 2 + 300, y: 0, vx: 0, vy: 0, curve: 0, powerGlow: 0, ownerId: null }];
   }
   room.lastToucher = null;
   room.combo = { red: 0, blue: 0 };
@@ -89,7 +87,10 @@ function getPlayersPublic(room) {
 }
 
 function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel) {
-  const speedBonus = 1 + Math.min(0.35, Math.hypot(p.vx, p.vy) / 800); // Разгон усиливает удар
+  b.ownerId = null;
+  p.pickupLock = 0.25;
+
+  const speedBonus = 1 + Math.min(0.25, Math.hypot(p.vx, p.vy) / 900);
   const maxImp = kind === 'kick' ? KICK_MAX : PASS_MAX;
   const imp = maxImp * powerLevel * speedBonus;
 
@@ -97,25 +98,26 @@ function applyShot(room, p, playerId, b, kind, dirX, dirY, powerLevel) {
   const inp = room.inputs[playerId] || { x: 0, y: 0 };
   if (Math.hypot(dx, dy) < 0.1) {
     if (Math.hypot(inp.x, inp.y) > 0.1) { dx = inp.x; dy = inp.y; }
-    else { dx = b.x - p.x; dy = b.y - p.y; }
+    else { dx = Math.cos(p.facing || 0); dy = Math.sin(p.facing || 0); }
   }
   const l = Math.hypot(dx, dy) || 1;
   const nx = dx / l, ny = dy / l;
 
-  b.vx += nx * imp;
-  b.vy += ny * imp;
+  b.x = p.x + nx * (PLAYER_R + BALL_R + 6);
+  b.y = p.y + ny * (PLAYER_R + BALL_R + 6);
+  b.vx = nx * imp;
+  b.vy = ny * imp;
 
-  // Кривой удар (curve): перпендикулярная составляющая при диагональном/угловом сдвиге
   const perpX = -ny, perpY = nx;
-  const spin = (nx * dy - ny * dx) * 260 * powerLevel;
-  b.vx += perpX * spin * 0.45;
-  b.vy += perpY * spin * 0.45;
+  const spin = (nx * dy - ny * dx) * 220 * powerLevel;
+  b.vx += perpX * spin * 0.4;
+  b.vy += perpY * spin * 0.4;
   b.curve = spin;
   b.powerGlow = Math.min(1, powerLevel * speedBonus);
 
   room.lastToucher = playerId;
-  if (imp > 650) {
-    io.to(room.code).emit('screenShake', { intensity: Math.min(14, (imp - 600) / 35) });
+  if (imp > 620) {
+    io.to(room.code).emit('screenShake', { intensity: Math.min(12, (imp - 580) / 35) });
   }
 }
 
@@ -154,67 +156,32 @@ function startRoomLoop(code) {
 
       const inp = room.inputs[id] || { x: 0, y: 0 };
       const moving = Math.hypot(inp.x, inp.y) > 0.08;
+      if (moving) p.facing = Math.atan2(inp.y, inp.x);
 
-      if (p.fatigueTimer > 0) {
-        p.fatigueTimer = Math.max(0, p.fatigueTimer - dt);
-        p.sprinting = false;
-        p.joyHoldTime = 0;
-      } else if (moving) {
-        p.joyHoldTime = (p.joyHoldTime || 0) + dt;
-        if (p.joyHoldTime >= 0.5) p.sprinting = true;
-      } else {
-        if (p.sprinting) p.fatigueTimer = 1.0; // Усталость 1 сек после спринта
-        p.sprinting = false;
-        p.joyHoldTime = 0;
-      }
-
-      const accel = p.sprinting ? SPRINT_ACCEL : PLAYER_ACCEL;
-      const maxSp = p.fatigueTimer > 0 ? STAMINA_PENALTY_MAX : (p.sprinting ? SPRINT_MAX : PLAYER_MAX);
-
-      p.vx += inp.x * accel * dt;
-      p.vy += inp.y * accel * dt;
-      const sp = Math.hypot(p.vx, p.vy);
-      if (sp > maxSp) { p.vx = p.vx / sp * maxSp; p.vy = p.vy / sp * maxSp; }
+      p.vx += inp.x * PLAYER_ACCEL * dt;
+      p.vy += inp.y * PLAYER_ACCEL * dt;
 
       if (!moving) {
         const f = Math.pow(iceFriction * weatherFriction, dt * 60);
         p.vx *= f; p.vy *= f;
-      }
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      if (p.dashCd > 0) p.dashCd -= dt;
-      if (p.tackleCd > 0) p.tackleCd -= dt;
-
-      // Магнит 320
-      for (const b of room.balls) {
-        const dx = p.x - b.x, dy = p.y - b.y;
-        const d = Math.hypot(dx, dy);
-        if (d < AUTO_MAGNET_RANGE && d > 1) {
-          const f = AUTO_MAGNET_FORCE * (1 - d / AUTO_MAGNET_RANGE);
-          b.vx += (dx / d) * f * dt;
-          b.vy += (dy / d) * f * dt;
+      } else {
+        const sp = Math.hypot(p.vx, p.vy);
+        if (sp > PLAYER_MAX && p.dashTimer <= 0) {
+          p.vx = p.vx / sp * PLAYER_MAX;
+          p.vy = p.vy / sp * PLAYER_MAX;
         }
       }
-    }
 
-    for (const b of room.balls) {
-      // Эффект дуги от кривого удара
-      if (b.curve && Math.abs(b.curve) > 1) {
-        const perpX = -b.vy, perpY = b.vx;
-        const pl = Math.hypot(perpX, perpY) || 1;
-        b.vx += (perpX / pl) * b.curve * dt * 1.4;
-        b.vy += (perpY / pl) * b.curve * dt * 1.4;
-        b.curve *= Math.pow(0.88, dt * 60);
-      }
-      if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.8);
-
-      const bf = Math.pow(0.99, dt * 60);
-      b.vx *= bf; b.vy *= bf;
-      b.x += b.vx * dt; b.y += b.vy * dt;
-      const bSp = Math.hypot(b.vx, b.vy);
-      if (bSp > 980) { b.vx = b.vx / bSp * 980; b.vy = b.vy / bSp * 980; }
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.dashCd > 0) p.dashCd -= dt;
+      if (p.dashTimer > 0) p.dashTimer -= dt;
+      if (p.tackleCd > 0) p.tackleCd -= dt;
+      if (p.pickupLock > 0) p.pickupLock -= dt;
     }
 
     const activeIds = Object.keys(room.players).filter(id => room.players[id].team !== 'spec');
+
+    // Столкновения игроков друг с другом (мяч НЕ выбивается без кнопки отбора)
     for (let i = 0; i < activeIds.length; i++) {
       for (let j = i + 1; j < activeIds.length; j++) {
         const a = room.players[activeIds[i]], c = room.players[activeIds[j]];
@@ -225,38 +192,47 @@ function startRoomLoop(code) {
           const nx = dx / d, ny = dy / d, ov = md - d;
           a.x -= nx * ov * 0.5; a.y -= ny * ov * 0.5;
           c.x += nx * ov * 0.5; c.y += ny * ov * 0.5;
-          const rvx = c.vx - a.vx, rvy = c.vy - a.vy;
-          const vn = rvx * nx + rvy * ny;
-          if (vn < 0) {
-            const j2 = -(1 + BOUNCE) * vn / 2;
-            a.vx -= j2 * nx; a.vy -= j2 * ny;
-            c.vx += j2 * nx; c.vy += j2 * ny;
-          }
         }
       }
     }
 
-    for (const id of activeIds) {
-      const p = room.players[id];
-      for (const b of room.balls) {
-        const dx = b.x - p.x, dy = b.y - p.y;
-        const d = Math.hypot(dx, dy);
-        const md = PLAYER_R + BALL_R;
-        if (d < md && d > 0.001) {
-          const nx = dx / d, ny = dy / d, ov = md - d;
-          b.x += nx * ov; b.y += ny * ov;
-          p.x -= nx * ov * 0.3; p.y -= ny * ov * 0.3;
-          const pSp = Math.hypot(p.vx, p.vy);
-          // Автоудар при столкновении на спринте
-          const kick = p.sprinting ? Math.max(680, pSp * 1.85) : Math.max(120, pSp * 1.15);
-          b.vx += nx * kick; b.vy += ny * kick;
-          if (p.sprinting) {
-            b.powerGlow = 1;
-            p.sprinting = false;
-            p.fatigueTimer = 1.0;
-            io.to(code).emit('screenShake', { intensity: 8 });
+    // Движение мячей и жёсткое прикрепление спереди при дриблинге
+    for (const b of room.balls) {
+      if (b.ownerId && room.players[b.ownerId] && room.players[b.ownerId].team !== 'spec') {
+        const owner = room.players[b.ownerId];
+        const ang = owner.facing || 0;
+        b.x = owner.x + Math.cos(ang) * DRIBBLE_DIST;
+        b.y = owner.y + Math.sin(ang) * DRIBBLE_DIST;
+        b.vx = owner.vx;
+        b.vy = owner.vy;
+        b.curve = 0;
+        b.powerGlow = 0;
+        room.lastToucher = b.ownerId;
+      } else {
+        b.ownerId = null;
+        if (b.curve && Math.abs(b.curve) > 1) {
+          const perpX = -b.vy, perpY = b.vx;
+          const pl = Math.hypot(perpX, perpY) || 1;
+          b.vx += (perpX / pl) * b.curve * dt * 1.3;
+          b.vy += (perpY / pl) * b.curve * dt * 1.3;
+          b.curve *= Math.pow(0.88, dt * 60);
+        }
+        if (b.powerGlow > 0) b.powerGlow = Math.max(0, b.powerGlow - dt * 0.8);
+
+        const bf = Math.pow(0.988, dt * 60);
+        b.vx *= bf; b.vy *= bf;
+        b.x += b.vx * dt; b.y += b.vy * dt;
+
+        // Подбор свободного мяча при касании
+        for (const id of activeIds) {
+          const p = room.players[id];
+          if (p.pickupLock > 0) continue;
+          const d = Math.hypot(b.x - p.x, b.y - p.y);
+          if (d <= PLAYER_R + BALL_R + 6) {
+            b.ownerId = id;
+            room.lastToucher = id;
+            break;
           }
-          room.lastToucher = id;
         }
       }
     }
@@ -272,32 +248,14 @@ function startRoomLoop(code) {
     const goalHalfH = (bd.h * 0.3) / 2;
     for (let bi = 0; bi < room.balls.length; bi++) {
       const b = room.balls[bi];
-      const toucher = room.lastToucher ? room.players[room.lastToucher] : null;
 
-      // Выход за боковую линию: угловой у ворот или вбрасывание
-      if (b.y < bd.minY + BALL_R || b.y > bd.maxY - BALL_R) {
-        const outY = b.y < bd.minY + BALL_R ? bd.minY + BALL_R + 10 : bd.maxY - BALL_R - 10;
-        const nearLeftGoal = b.x < bd.minX + 260;
-        const nearRightGoal = b.x > bd.maxX - 260;
-
-        if ((nearLeftGoal && toucher?.team === 'blue') || (nearRightGoal && toucher?.team === 'red')) {
-          // Угловой
-          const cornerX = nearLeftGoal ? bd.minX + 40 : bd.maxX - 40;
-          const cornerY = b.y < 0 ? bd.minY + 40 : bd.maxY - 40;
-          b.x = cornerX; b.y = cornerY; b.vx = 0; b.vy = 0; b.curve = 0;
-          io.to(code).emit('setPiece', { type: 'corner', x: cornerX, y: cornerY });
-        } else {
-          // Вбрасывание в точке выхода
-          b.x = Math.max(bd.minX + 60, Math.min(bd.maxX - 60, b.x));
-          b.y = outY; b.vx = 0; b.vy = 0; b.curve = 0;
-          io.to(code).emit('setPiece', { type: 'throwIn', x: b.x, y: b.y });
-        }
-        continue;
-      }
+      // Обычный отскок от верхней и нижней боковых линий (без аутов и угловых)
+      if (b.y < bd.minY + BALL_R) { b.y = bd.minY + BALL_R; b.vy = Math.abs(b.vy) * BOUNCE; }
+      if (b.y > bd.maxY - BALL_R) { b.y = bd.maxY - BALL_R; b.vy = -Math.abs(b.vy) * BOUNCE; }
 
       const inGoalY = Math.abs(b.y) <= goalHalfH;
-      const escapedLeft = b.x < bd.minX - BALL_R && inGoalY;
-      const escapedRight = b.x > bd.maxX + BALL_R && inGoalY;
+      const escapedLeft = b.x < bd.minX - BALL_R * 0.4 && inGoalY;
+      const escapedRight = b.x > bd.maxX + BALL_R * 0.4 && inGoalY;
 
       if (!escapedLeft && !escapedRight) {
         if (b.x < bd.minX + BALL_R) { b.x = bd.minX + BALL_R; b.vx = Math.abs(b.vx) * BOUNCE; }
@@ -305,6 +263,7 @@ function startRoomLoop(code) {
         continue;
       }
 
+      const toucher = room.lastToucher ? room.players[room.lastToucher] : null;
       const scoringTeam = escapedLeft ? 'blue' : 'red';
       const isOwnGoal = toucher && toucher.team !== scoringTeam;
       const scorerName = toucher ? (isOwnGoal ? `${toucher.name} (Автогол)` : toucher.name) : '';
@@ -339,16 +298,15 @@ function startRoomLoop(code) {
     if (room.syncTick >= every) {
       room.syncTick = 0;
       const snap = {
-        balls: room.balls.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, curve: b.curve, powerGlow: b.powerGlow })),
+        balls: room.balls.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, curve: b.curve, powerGlow: b.powerGlow, ownerId: b.ownerId })),
         players: {},
         timeLeft: room.timeLeft
       };
       for (const id of activeIds) {
         const p = room.players[id];
         snap.players[id] = {
-          x: p.x, y: p.y, vx: p.vx, vy: p.vy,
-          dashCd: p.dashCd, tackleCd: p.tackleCd,
-          sprinting: p.sprinting, fatigueTimer: p.fatigueTimer,
+          x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
+          dashCd: p.dashCd, tackleCd: p.tackleCd, dashTimer: p.dashTimer,
           lastSeq: room.lastSeq[id] || 0
         };
       }
@@ -384,7 +342,7 @@ io.on('connection', (socket) => {
     room.players[socket.id] = {
       name: cleanName, color: sanitizeColor(color), number: sanitizeNum(number),
       skin: sanitize(skin || 'plain').slice(0, 10),
-      team: 'red', x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, tackleCd: 0, sprinting: false, fatigueTimer: 0
+      team: 'red', x: 0, y: 0, vx: 0, vy: 0, facing: 0, dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0
     };
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(code);
@@ -406,7 +364,7 @@ io.on('connection', (socket) => {
     room.players[socket.id] = {
       name: cleanName, color: sanitizeColor(color), number: sanitizeNum(number),
       skin: sanitize(skin || 'plain').slice(0, 10),
-      team, x: 0, y: 0, vx: 0, vy: 0, dashCd: 0, tackleCd: 0, sprinting: false, fatigueTimer: 0
+      team, x: 0, y: 0, vx: 0, vy: 0, facing: 0, dashCd: 0, tackleCd: 0, dashTimer: 0, pickupLock: 0
     };
     room.inputs[socket.id] = { x: 0, y: 0 };
     socket.join(code);
@@ -481,40 +439,43 @@ io.on('connection', (socket) => {
     if (!p || p.team === 'spec') return;
 
     if (type === 'dash') {
-      if (p.dashCd > 0 || p.fatigueTimer > 0) return;
+      if (p.dashCd > 0) return;
       p.dashCd = DASH_CD;
+      p.dashTimer = 0.28;
       const inp = room.inputs[socket.id];
       const l = Math.hypot(inp.x, inp.y);
-      if (l > 0.1) { p.vx += (inp.x / l) * DASH_IMPULSE; p.vy += (inp.y / l) * DASH_IMPULSE; }
+      const nx = l > 0.1 ? inp.x / l : Math.cos(p.facing || 0);
+      const ny = l > 0.1 ? inp.y / l : Math.sin(p.facing || 0);
+      p.vx = nx * DASH_IMPULSE;
+      p.vy = ny * DASH_IMPULSE;
     } else if (type === 'tackle') {
       if (p.tackleCd > 0) return;
       p.tackleCd = TACKLE_CD;
+      const fx = Math.cos(p.facing || 0), fy = Math.sin(p.facing || 0);
+      p.vx += fx * 260; p.vy += fy * 260;
+
       for (const b of room.balls) {
-        const dx = b.x - p.x, dy = b.y - p.y;
-        const d = Math.hypot(dx, dy);
-        if (d < PLAYER_R + BALL_R + 60 && d > 1) {
-          const nx = dx / d, ny = dy / d;
-          b.vx += nx * 420; b.vy += ny * 420;
-          room.lastToucher = socket.id;
-          for (const id in room.players) {
-            if (id === socket.id) continue;
-            const o = room.players[id];
-            if (o.team !== 'spec' && o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < 120) {
-              o.vx *= 0.3; o.vy *= 0.3;
-            }
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        if (d < PLAYER_R + BALL_R + 55) {
+          if (b.ownerId && b.ownerId !== socket.id && room.players[b.ownerId]) {
+            room.players[b.ownerId].pickupLock = 0.6;
+            room.players[b.ownerId].vx *= 0.35;
+            room.players[b.ownerId].vy *= 0.35;
           }
+          b.ownerId = socket.id;
+          room.lastToucher = socket.id;
         }
       }
     } else if (type === 'kick' || type === 'pass') {
       let bestB = null, bestD = 9999;
       for (const b of room.balls) {
-        const dx = b.x - p.x, dy = b.y - p.y;
-        const d = Math.hypot(dx, dy);
+        if (b.ownerId === socket.id) { bestB = b; break; }
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
         const range = (type === 'kick' ? 75 : 85) + PLAYER_R + BALL_R;
-        if (d < range && d < bestD) { bestD = d; bestB = b; }
+        if (d < range && d < bestD && !b.ownerId) { bestD = d; bestB = b; }
       }
       if (!bestB) return;
-      const powerLevel = Math.max(0.2, Math.min(1, power || 1));
+      const powerLevel = Math.max(0.25, Math.min(1, power || 1));
       applyShot(room, p, socket.id, bestB, type, dirX || 0, dirY || 0, powerLevel);
     }
   });
@@ -552,6 +513,7 @@ io.on('connection', (socket) => {
     const code = socket.roomCode;
     if (!code || !rooms[code]) return;
     const room = rooms[code];
+    for (const b of room.balls) { if (b.ownerId === socket.id) b.ownerId = null; }
     delete room.players[socket.id];
     delete room.inputs[socket.id];
     delete room.lastSeq[socket.id];
